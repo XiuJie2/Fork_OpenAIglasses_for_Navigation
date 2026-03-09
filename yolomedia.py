@@ -27,9 +27,17 @@ import bridge_io
 import pygame  # 用于播放本地音频文件
 
 from audio_player import play_audio_threadsafe
-PERF_DEBUG = False        # 打印调试信息（False 关闭）
-HAND_DOWNSCALE = 0.8      # HandLandmarker 的输入缩放 0.5=长宽各减半（≈1/4 像素量）
-HAND_FPS_DIV = 1          # 人手每 2 帧跑一次（1=每帧；2=隔帧；3=每3帧）
+# ── 從 config.py 讀取可調參數（可在 .env 覆寫）──────────────────────────────
+from config import (
+    PERF_DEBUG,
+    HAND_DOWNSCALE,
+    HAND_FPS_DIV,
+    TTS_INTERVAL_SEC,
+    ENABLE_TTS,
+    CONF_THRESHOLD,
+    SHOPPING_MODEL as YOLO_MODEL_PATH,
+    HAND_LANDMARKER_PATH as HAND_TASK_PATH,
+)
 
 
 # === 前端风格配色（BGR） + UI叠加管理（左下角按行堆叠） ===
@@ -91,9 +99,7 @@ except Exception as e:
     _YOLOE_READY = False
     print(f"[DETECTOR] YOLOE backend not ready: {e}", flush=True)
 
-# ========= 路径参数（按需修改）=========
-YOLO_MODEL_PATH = r'C:\Users\Administrator\Desktop\rebuild1002\model\shoppingbest5.pt'
-HAND_TASK_PATH  = r"C:\Users\Administrator\Desktop\rebuild1002\model\hand_landmarker.task"
+# 模型路徑已由上方 config import 提供（YOLO_MODEL_PATH, HAND_TASK_PATH）
 
 # ========= 摄像头 =========
 CAM_INDEX = 0
@@ -102,7 +108,7 @@ INPUT_W, INPUT_H = 600, 480
 # ========= 分割显示 =========
 STROKE_WIDTH = 5  # 增加描边宽度，让黄框和绿框更粗
 MASK_ALPHA   = 0.45
-CONF_THRESHOLD = 0.20
+# CONF_THRESHOLD 已由 config import 提供
 
 # —— 单 prompt 识别（只显示一个类）——
 PROMPT_NAME   = "AD_milk"
@@ -115,9 +121,7 @@ ALIGN_LOOSE_PCT      = 0.12   # 归一化距离阈（相对画面对角线）
 RATIO_IDEAL          = 1.0    # 理想值：物体面积/手面积 ≈ 1
 RATIO_TOL            = 0.25   # 容许偏离：±25% 内认为距离合适
 
-# ========= 语音播报 =========
-TTS_INTERVAL_SEC     = 1.0
-ENABLE_TTS           = True
+# TTS_INTERVAL_SEC 與 ENABLE_TTS 已由 config import 提供
 
 # ========= 光流（LK）与特征点 =========
 LK_PARAMS = dict(winSize=(21, 21),

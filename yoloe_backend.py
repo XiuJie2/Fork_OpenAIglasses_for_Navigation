@@ -11,8 +11,10 @@ try:
 except Exception:
     from ultralytics import YOLO as _MODEL
 
-DEFAULT_MODEL_PATH = os.getenv("YOLOE_MODEL_PATH", r"C:\Users\Administrator\Desktop\rebuild1002\model\yoloe-11l-seg.pt")
-TRACKER_CFG        = os.getenv("YOLO_TRACKER_YAML", "bytetrack.yaml")
+# 從 config.py 讀取模型路徑（路徑由 .env 的 YOLOE_MODEL_PATH 提供）
+from config import YOLOE_MODEL_PATH as DEFAULT_MODEL_PATH
+
+TRACKER_CFG = os.getenv("YOLO_TRACKER_YAML", "bytetrack.yaml")
 
 class YoloEBackend:
     def __init__(self, model_path: Optional[str] = None, device: Optional[Union[str, int]] = None):

@@ -1,10 +1,13 @@
 # qwen_extractor.py
 # -*- coding: utf-8 -*-
-from typing import List, Tuple
-import os
-from openai import OpenAI
+"""
+將中文語音指令轉換為 YOLO 英文標籤。
+使用 Groq Llama 3.1 8B Instant（透過 urllib 直接呼叫，避免 openai SDK 版本問題）。
+"""
+import os, json, urllib.request, urllib.error
+from typing import Tuple
 
-# —— 本地优先映射（可随时扩充/改名）——
+# ── 本地優先對照表（命中直接回傳，不呼叫 API）──────────────────────────────
 LOCAL_CN2EN = {
     "红牛": "Red_Bull",
     "ad钙奶": "AD_milk",
@@ -17,12 +20,6 @@ LOCAL_CN2EN = {
     "雪碧": "sprite",
 }
 
-def _make_client() -> OpenAI:
-    # 复用你百炼兼容端点；支持从环境变量读取
-    base_url = os.getenv("DASHSCOPE_COMPAT_BASE", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-    api_key  = "sk-a9440db694924559ae4ebdc2023d2b9a"
-    return OpenAI(api_key=api_key, base_url=base_url)
-
 PROMPT_SYS = (
     "You are a label normalizer. Convert the given Chinese object "
     "description into a short, lowercase English YOLO/vision class name "
@@ -30,35 +27,51 @@ PROMPT_SYS = (
     "Output ONLY the label, no punctuation."
 )
 
+def _groq_label(query_cn: str) -> str:
+    """呼叫 Groq Llama 3.1 8B Instant 將中文物品名轉為英文標籤"""
+    from config import GROQ_API_KEY
+    payload = json.dumps({
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": PROMPT_SYS},
+            {"role": "user",   "content": query_cn.strip()},
+        ],
+        "stream": False,
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "groq-extractor/1.0",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as r:
+        result = json.loads(r.read())
+    return (result["choices"][0]["message"]["content"] or "").strip()
+
 def extract_english_label(query_cn: str) -> Tuple[str, str]:
     """
-    返回 (label_en, source)；source ∈ {'local', 'qwen', 'fallback'}
+    回傳 (label_en, source)；source ∈ {'local', 'groq', 'fallback'}
     """
     q = (query_cn or "").strip().lower()
+
+    # ① 精確命中本地對照表
     if q in LOCAL_CN2EN:
         return LOCAL_CN2EN[q], "local"
 
-    # 简单规则：去掉前缀修饰词
+    # ② 模糊命中（包含關鍵詞）
     for k, v in LOCAL_CN2EN.items():
         if k in q:
             return v, "local"
 
-    # 调用 Qwen Turbo（兼容 Chat Completions）
+    # ③ 呼叫 Groq Llama
     try:
-        client = _make_client()
-        msgs = [
-            {"role": "system", "content": PROMPT_SYS},
-            {"role": "user",   "content": query_cn.strip()},
-        ]
-        rsp = client.chat.completions.create(
-            model=os.getenv("QWEN_MODEL", "qwen-turbo"),
-            messages=msgs,
-            stream=False
-        )
-        label = (rsp.choices[0].message.content or "").strip()
-        # 清洗一下
+        label = _groq_label(query_cn)
         label = label.replace(".", "").replace(",", "").replace("  ", " ").strip()
-        # 兜底：空就回 'bottle'
-        return (label or "bottle"), "qwen"
-    except Exception:
+        return (label or "bottle"), "groq"
+    except Exception as e:
+        print(f"[qwen_extractor] Groq 呼叫失敗: {e}", flush=True)
         return "bottle", "fallback"

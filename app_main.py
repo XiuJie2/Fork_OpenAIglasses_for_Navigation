@@ -3,17 +3,13 @@
 import os, sys, time, json, asyncio, base64, audioop
 from typing import Any, Dict, Optional, Tuple, List, Callable, Set, Deque
 from collections import deque
-from dataclasses import dataclass
 import re
-# 在其它 import 之后加：
 from qwen_extractor import extract_english_label
-from navigation_master import NavigationMaster, OrchestratorResult 
-# 新增：导入盲道导航器
+from navigation_master import NavigationMaster, OrchestratorResult
 from workflow_blindpath import BlindPathNavigator
-# 新增：导入过马路导航器
 from workflow_crossstreet import CrossStreetNavigator
 import torch
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketState
@@ -22,11 +18,6 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from obstacle_detector_client import ObstacleDetectorClient
-
-import torch  # 添加这行
-
-
-import mediapipe as mp
 import bridge_io
 import threading
 import yolomedia  # 确保和 app_main.py 同目录，文件名就是 yolomedia.py
@@ -37,26 +28,20 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 
-# ---- .env ----
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+# ── 從 config.py 讀取所有設定（.env 已在 config.py 中載入）──────────────────
+from config import (
+    GROQ_API_KEY,
+    SAMPLE_RATE,
+    CHUNK_MS,
+    AUDIO_FORMAT as AUDIO_FMT,
+    UDP_IP,
+    UDP_PORT,
+    SERVER_HOST,
+    SERVER_PORT,
+)
 
-# ---- DashScope ASR 基础 ----
-from dashscope import audio as dash_audio  # 若未安装，会在原项目里抛错提示
-
-API_KEY = os.getenv("DASHSCOPE_API_KEY", "sk-a9440db694924559ae4ebdc2023d2b9a")
-if not API_KEY:
-    raise RuntimeError("未设置 DASHSCOPE_API_KEY")
-
-MODEL        = "paraformer-realtime-v2"
-SAMPLE_RATE  = 16000
-AUDIO_FMT    = "pcm"
-CHUNK_MS     = 20
-BYTES_CHUNK  = SAMPLE_RATE * CHUNK_MS // 1000 * 2
-SILENCE_20MS = bytes(BYTES_CHUNK)
+if not GROQ_API_KEY:
+    raise RuntimeError("未設定 GROQ_API_KEY，請在 .env 中加入該金鑰")
 
 # ---- 引入我们的模块 ----
 from audio_stream import (
@@ -70,6 +55,7 @@ from audio_stream import (
 from omni_client import stream_chat, OmniStreamPiece
 from asr_core import (
     ASRCallback,
+    GroqASR,
     set_current_recognition,
     stop_current_recognition,
 )
@@ -77,12 +63,8 @@ from audio_player import initialize_audio_system, play_voice_text
 
 # ---- 同步录制器 ----
 import sync_recorder
-import signal
-import atexit
 
-# ---- IMU UDP ----
-UDP_IP   = "0.0.0.0"
-UDP_PORT = 12345
+# ---- IMU UDP（設定來自 config.py）----
 
 app = FastAPI()
 
@@ -97,6 +79,7 @@ last_frames: Deque[Tuple[float, bytes]] = deque(maxlen=10)
 
 camera_viewers: Set[WebSocket] = set()
 esp32_camera_ws: Optional[WebSocket] = None
+_welcome_played: bool = False  # 歡迎音效只播一次
 imu_ws_clients: Set[WebSocket] = set()
 esp32_audio_ws: Optional[WebSocket] = None
 
@@ -121,7 +104,8 @@ def load_navigation_models():
     global yolo_seg_model, obstacle_detector
 
     try:
-        seg_model_path = os.getenv("BLIND_PATH_MODEL", r"C:\Users\Administrator\Desktop\rebuild1002\model\yolo-seg.pt")
+        from config import BLIND_PATH_MODEL
+        seg_model_path = BLIND_PATH_MODEL
         #print(f"[NAVIGATION] 尝试加载模型: {seg_model_path}")
 
         if os.path.exists(seg_model_path):
@@ -154,7 +138,8 @@ def load_navigation_models():
             print(f"[NAVIGATION] 请检查文件路径是否正确")
             
         # 【修改开始】使用 ObstacleDetectorClient 替代直接的 YOLO
-        obstacle_model_path = os.getenv("OBSTACLE_MODEL", r"C:\Users\Administrator\Desktop\rebuild1002\model\yoloe-11l-seg.pt")
+        from config import OBSTACLE_MODEL
+        obstacle_model_path = OBSTACLE_MODEL
         print(f"[NAVIGATION] 尝试加载障碍物检测模型: {obstacle_model_path}")
         
         if os.path.exists(obstacle_model_path):
@@ -229,31 +214,9 @@ load_navigation_models()
 print(f"[NAVIGATION] 模型加载完成 - yolo_seg_model: {yolo_seg_model is not None}")
 
 # 【新增】启动同步录制
-print("[RECORDER] 启动同步录制系统...")
-sync_recorder.start_recording()
-print("[RECORDER] 录制系统已启动，将自动保存视频和音频")
-
-# 【新增】注册退出处理器，确保Ctrl+C时保存录制文件
-def cleanup_on_exit():
-    """程序退出时的清理工作"""
-    print("\n[SYSTEM] 正在关闭录制器...")
-    try:
-        sync_recorder.stop_recording()
-        print("[SYSTEM] 录制文件已保存")
-    except Exception as e:
-        print(f"[SYSTEM] 关闭录制器时出错: {e}")
-
-def signal_handler(sig, frame):
-    """处理Ctrl+C信号"""
-    print("\n[SYSTEM] 收到中断信号，正在安全退出...")
-    cleanup_on_exit()
-    import sys
-    sys.exit(0)
-
-# 注册信号处理器
-signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
-signal.signal(signal.SIGTERM, signal_handler)  # 终止信号
-atexit.register(cleanup_on_exit)  # 正常退出时也调用
+print("[RECORDER] 同步錄製系統已停用（如需啟用請取消此處的註解）")
+# sync_recorder.start_recording()
+# print("[RECORDER] 录制系统已启动，将自动保存视频和音频")
 
 print("[RECORDER] 已注册退出处理器 - Ctrl+C时会自动保存录制文件")
 
@@ -410,19 +373,39 @@ def stop_yolomedia():
 async def start_ai_with_text_custom(user_text: str):
     """扩展版的AI启动函数，支持识别特殊命令"""
     global navigation_active, blind_path_navigator, cross_street_active, cross_street_navigator, orchestrator
-    
+
+    # ── 使用說明書（任何模式下均可觸發）──────────────────────────────────
+    if "眼鏡使用說明書" in user_text or "使用說明書" in user_text:
+        await ui_broadcast_final("[系統] 播放使用說明")
+        help_lines = [
+            "AI智慧眼鏡使用說明。",
+            "緊急停止，請說：停下所有功能、或停止所有功能。",
+            "盲道導航，請說：開始導航、盲道導航、或幫我導航。停止請說：停止導航。",
+            "過馬路，請說：開始過馬路、或幫我過馬路。停止請說：結束過馬路。",
+            "紅綠燈偵測，請說：檢測紅綠燈、或看紅綠燈。停止請說：停止檢測。",
+            "物品搜尋，請說：找一下，加上物品名稱，例如找一下鑰匙。找到後說：找到了。",
+            "視覺問答，請說：前面有什麼、幫我看、或看看。",
+            "說明結束。",
+        ]
+        for line in help_lines:
+            play_voice_text(line)
+        return
+
     # 【修改】在导航模式和红绿灯检测模式下，只有特定词才进入omni对话
     if orchestrator:
         current_state = orchestrator.get_state()
         # 如果在导航模式或红绿灯检测模式（非CHAT模式）
         if current_state not in ["CHAT", "IDLE"]:
             # 检查是否是允许的对话触发词
-            allowed_keywords = ["帮我看", "帮我看下", "帮我找", "找一下", "看看", "识别一下"]
+            allowed_keywords = ["帮我看", "帮我看下", "帮我找", "找一下", "看看", "识别一下",
+                               "幫我看", "幫我看下", "幫我找", "識別一下"]
             is_allowed_query = any(keyword in user_text for keyword in allowed_keywords)
             
             # 检查是否是导航控制命令
-            nav_control_keywords = ["开始过马路", "过马路结束", "开始导航", "盲道导航", "停止导航", "结束导航", 
-                                   "检测红绿灯", "看红绿灯", "停止检测", "停止红绿灯"]
+            nav_control_keywords = ["开始过马路", "过马路结束", "开始导航", "盲道导航", "停止导航", "结束导航",
+                                   "检测红绿灯", "看红绿灯", "停止检测", "停止红绿灯",
+                                   "開始過馬路", "過馬路結束", "開始導航", "停止導航", "結束導航",
+                                   "檢測紅綠燈", "看紅綠燈", "停止檢測", "停止紅綠燈"]
             is_nav_control = any(keyword in user_text for keyword in nav_control_keywords)
             
             # 如果既不是允许的查询，也不是导航控制命令，则丢弃
@@ -432,7 +415,8 @@ async def start_ai_with_text_custom(user_text: str):
                 return  # 直接丢弃，不进入omni
     
     # 【修改】检查是否是过马路相关命令 - 使用orchestrator控制
-    if "开始过马路" in user_text or "帮我过马路" in user_text:
+    if "开始过马路" in user_text or "帮我过马路" in user_text or \
+       "開始過馬路" in user_text or "幫我過馬路" in user_text:
         # 【新增】如果正在找物品，先停止
         if yolomedia_running:
             stop_yolomedia()
@@ -450,7 +434,8 @@ async def start_ai_with_text_custom(user_text: str):
             await ui_broadcast_final("[系统] 导航系统未就绪")
         return
     
-    if "过马路结束" in user_text or "结束过马路" in user_text:
+    if "过马路结束" in user_text or "结束过马路" in user_text or \
+       "過馬路結束" in user_text or "結束過馬路" in user_text:
         if orchestrator:
             orchestrator.stop_navigation()
             print(f"[CROSS_STREET] 导航已停止，状态: {orchestrator.get_state()}")
@@ -462,7 +447,8 @@ async def start_ai_with_text_custom(user_text: str):
         return
     
     # 【修改】检查是否是红绿灯检测命令 - 实现与盲道导航互斥
-    if "检测红绿灯" in user_text or "看红绿灯" in user_text:
+    if "检测红绿灯" in user_text or "看红绿灯" in user_text or \
+       "檢測紅綠燈" in user_text or "看紅綠燈" in user_text:
         try:
             import trafficlight_detection
             
@@ -484,7 +470,8 @@ async def start_ai_with_text_custom(user_text: str):
             await ui_broadcast_final(f"[系统] 启动失败: {e}")
         return
     
-    if "停止检测" in user_text or "停止红绿灯" in user_text:
+    if "停止检测" in user_text or "停止红绿灯" in user_text or \
+       "停止檢測" in user_text or "停止紅綠燈" in user_text:
         try:
             # 恢复到对话模式
             if orchestrator:
@@ -498,7 +485,8 @@ async def start_ai_with_text_custom(user_text: str):
         return
     
     # 【修改】检查是否是导航相关命令 - 使用orchestrator控制
-    if "开始导航" in user_text or "盲道导航" in user_text or "帮我导航" in user_text:
+    if "开始导航" in user_text or "盲道导航" in user_text or "帮我导航" in user_text or \
+       "開始導航" in user_text or "幫我導航" in user_text:
         # 【新增】如果正在找物品，先停止
         if yolomedia_running:
             stop_yolomedia()
@@ -513,7 +501,8 @@ async def start_ai_with_text_custom(user_text: str):
             await ui_broadcast_final("[系统] 导航系统未就绪")
         return
     
-    if "停止导航" in user_text or "结束导航" in user_text:
+    if "停止导航" in user_text or "结束导航" in user_text or \
+       "停止導航" in user_text or "結束導航" in user_text:
         if orchestrator:
             orchestrator.stop_navigation()
             print(f"[NAVIGATION] 导航已停止，状态: {orchestrator.get_state()}")
@@ -522,7 +511,8 @@ async def start_ai_with_text_custom(user_text: str):
             await ui_broadcast_final("[系统] 导航系统未运行")
         return
 
-    nav_cmd_keywords = ["开始过马路", "过马路结束", "开始导航", "盲道导航", "停止导航", "结束导航", "立即通过", "现在通过", "继续"]
+    nav_cmd_keywords = ["开始过马路", "过马路结束", "开始导航", "盲道导航", "停止导航", "结束导航", "立即通过", "现在通过", "继续",
+                       "開始過馬路", "過馬路結束", "開始導航", "停止導航", "結束導航", "立即通過", "現在通過"]
     if any(k in user_text for k in nav_cmd_keywords):
         if orchestrator:
             orchestrator.on_voice_command(user_text)
@@ -533,7 +523,7 @@ async def start_ai_with_text_custom(user_text: str):
 
     # 检查是否是"帮我找/识别一下xxx"的命令
     # 扩展正则表达式，支持更多关键词
-    find_pattern = r"(?:^\s*帮我)?\s*找一下\s*(.+?)(?:。|！|？|$)"
+    find_pattern = r"(?:^\s*(?:帮我|幫我))?\s*找一下\s*(.+?)(?:。|！|？|$)"
     match = re.search(find_pattern, user_text)
         
     if match:
@@ -581,7 +571,7 @@ async def start_ai_with_text_custom(user_text: str):
             await ui_broadcast_final("[找物品] 已找到物品。")
         
         return
-    
+
     # 【修改】omni对话开始时，切换到CHAT模式
     global omni_conversation_active, omni_previous_nav_state
     omni_conversation_active = True
@@ -603,7 +593,19 @@ async def start_ai_with_text_custom(user_text: str):
     if yolomedia_running:
         print("[AI] YOLO media is running, skipping normal AI response", flush=True)
         return
-    
+
+    # IDLE/CHAT 模式下防止環境雜訊誤觸發：
+    # 文字必須 >= 4 字，或包含明確的對話觸發關鍵字
+    _CHAT_TRIGGER_KEYWORDS = [
+        "帮我", "幫我", "看看", "看一下", "前面", "什么", "什麼",
+        "有没有", "有沒有", "告訴", "告诉", "描述", "識別", "识别",
+        "找", "開始", "开始", "導航", "导航", "過馬路", "过马路",
+        "說明書", "使用說明", "紅綠燈", "红绿灯",
+    ]
+    if len(user_text) < 4 and not any(kw in user_text for kw in _CHAT_TRIGGER_KEYWORDS):
+        print(f"[IDLE過濾] 過短語音丟棄（{len(user_text)}字）: '{user_text}'", flush=True)
+        return
+
     # 原有的AI对话逻辑
     await start_ai_with_text(user_text)
 
@@ -734,15 +736,9 @@ async def ws_audio(ws: WebSocket):
     recognition = None
     streaming = False
     last_ts = time.monotonic()
-    keepalive_task: Optional[asyncio.Task] = None
 
     async def stop_rec(send_notice: Optional[str] = None):
-        nonlocal recognition, streaming, keepalive_task
-        if keepalive_task and not keepalive_task.done():
-            keepalive_task.cancel()
-            try: await keepalive_task
-            except Exception: pass
-        keepalive_task = None
+        nonlocal recognition, streaming
         if recognition:
             try: recognition.stop()
             except Exception: pass
@@ -755,23 +751,6 @@ async def ws_audio(ws: WebSocket):
 
     async def on_sdk_error(_msg: str):
         await stop_rec(send_notice="RESTART")
-
-    async def keepalive_loop():
-        nonlocal last_ts, recognition, streaming
-        try:
-            while streaming and recognition is not None:
-                idle = time.monotonic() - last_ts
-                if idle > 0.35:
-                    try:
-                        for _ in range(30):  # ~600ms 静音
-                            recognition.send_audio_frame(SILENCE_20MS)
-                        last_ts = time.monotonic()
-                    except Exception:
-                        await on_sdk_error("keepalive send failed")
-                        return
-                await asyncio.sleep(0.10)
-        except asyncio.CancelledError:
-            return
 
     try:
         while True:
@@ -797,39 +776,37 @@ async def ws_audio(ws: WebSocket):
                     def post(coro):
                         asyncio.run_coroutine_threadsafe(coro, loop)
 
-                    # 组装 ASR 回调（把依赖都注入）
+                    # 組裝 ASR 回調（注入所有依賴）
                     cb = ASRCallback(
                         on_sdk_error=lambda s: post(on_sdk_error(s)),
                         post=post,
                         ui_broadcast_partial=ui_broadcast_partial,
                         ui_broadcast_final=ui_broadcast_final,
                         is_playing_now_fn=is_playing_now,
-                        start_ai_with_text_fn=start_ai_with_text_custom,  # 使用自定义版本
+                        start_ai_with_text_fn=start_ai_with_text_custom,
                         full_system_reset_fn=full_system_reset,
                         interrupt_lock=interrupt_lock,
                     )
 
-                    recognition = dash_audio.asr.Recognition(
-                        api_key=API_KEY, model=MODEL, format=AUDIO_FMT,
-                        sample_rate=SAMPLE_RATE, callback=cb
+                    # 使用 Groq Whisper 批次 ASR（替代 DashScope）
+                    recognition = GroqASR(
+                        api_key=GROQ_API_KEY,
+                        sample_rate=SAMPLE_RATE,
+                        callback=cb,
                     )
                     recognition.start()
                     await set_current_recognition(recognition)
                     streaming = True
                     last_ts = time.monotonic()
-                    keepalive_task = asyncio.create_task(keepalive_loop())
-                    await ui_broadcast_partial("（已开始接收音频…）")
+                    await ui_broadcast_partial("（已開始接收音訊…）")
                     await ws.send_text("OK:STARTED")
+                    play_voice_text("切换到盲道导航。")
 
                 elif cmd == "STOP":
-                    if recognition:
-                        for _ in range(15):  # ~300ms 静音
-                            try: recognition.send_audio_frame(SILENCE_20MS)
-                            except Exception: break
                     await stop_rec(send_notice="OK:STOPPED")
 
                 elif raw.startswith("PROMPT:"):
-                    # 设备端主动发起一轮：同样使用“先硬重置后播放”的强语义
+                    # 设备端主动发起一轮：同样使用"先硬重置后播放"的强语义
                     text = raw[len("PROMPT:"):].strip()
                     if text:
                         async with interrupt_lock:
@@ -869,6 +846,17 @@ async def ws_camera_esp(ws: WebSocket):
     esp32_camera_ws = ws
     await ws.accept()
     print("[CAMERA] ESP32 connected")
+
+    # 硬體連線成功後播放歡迎音效（只播一次，延遲 4 秒等待 ESP32 音訊串流就緒）
+    def _play_welcome():
+        global _welcome_played
+        import time as _time
+        _time.sleep(4.0)
+        if not _welcome_played:
+            _welcome_played = True
+            from audio_player import play_audio_threadsafe
+            play_audio_threadsafe("歡迎使用AI智慧眼鏡")
+    threading.Thread(target=_play_welcome, daemon=True).start()
     
     # 【新增】初始化盲道导航器
     if blind_path_navigator is None and yolo_seg_model is not None:
@@ -973,6 +961,7 @@ async def ws_camera_esp(ws: WebSocket):
                             import trafficlight_detection
                             result = trafficlight_detection.process_single_frame(bgr, ui_broadcast_callback=ui_broadcast_final)
                             out_img = result['vis_image'] if result['vis_image'] is not None else bgr
+
                         else:
                             # 其他模式：正常的导航处理
                             res = orchestrator.process_frame(bgr)
@@ -1286,7 +1275,51 @@ async def on_startup_init_audio():
 @app.on_event("startup")
 async def on_startup():
     loop = asyncio.get_running_loop()
-    await loop.create_datagram_endpoint(lambda: UDPProto(), local_addr=(UDP_IP, UDP_PORT))
+    try:
+        await loop.create_datagram_endpoint(lambda: UDPProto(), local_addr=(UDP_IP, UDP_PORT))
+    except OSError as e:
+        print(f"[UDP] port {UDP_PORT} 無法綁定（{e}），IMU 資料將不可用，但服務繼續啟動", flush=True)
+
+_disc_stop = threading.Event()
+
+@app.on_event("startup")
+async def on_startup_discovery():
+    """UDP 探索回應器：收到 ESP32 廣播後，回傳本機 IP，讓 ESP32 自動找到伺服器。"""
+    import socket as _socket
+
+    def _get_local_ip_for(peer: str) -> str:
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        try:
+            s.connect((peer, 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+
+    def _run():
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        sock.bind(('', 12346))
+        sock.settimeout(1.0)
+        print("[DISC] UDP 探索回應器已啟動（port 12346）", flush=True)
+        while not _disc_stop.is_set():
+            try:
+                data, addr = sock.recvfrom(64)
+                if data == b'AIGLASS_DISCOVER':
+                    my_ip = _get_local_ip_for(addr[0])
+                    reply = f'AIGLASS_HOST:{my_ip}'.encode()
+                    sock.sendto(reply, addr)
+                    print(f"[DISC] {addr[0]} 詢問 -> 回應 {my_ip}", flush=True)
+            except _socket.timeout:
+                continue
+            except Exception as e:
+                print(f"[DISC] 錯誤: {e}", flush=True)
+        sock.close()
+
+    asyncio.get_running_loop().run_in_executor(None, _run)
+
+@app.on_event("shutdown")
+async def on_shutdown_discovery():
+    _disc_stop.set()
 
 @app.on_event("shutdown")
 async def on_shutdown():
@@ -1313,7 +1346,7 @@ def get_camera_ws():
 
 if __name__ == "__main__":
     uvicorn.run(
-        app, host="0.0.0.0", port=8081,
+        app, host=SERVER_HOST, port=SERVER_PORT,
         log_level="warning", access_log=False,
         loop="asyncio", workers=1, reload=False
     )

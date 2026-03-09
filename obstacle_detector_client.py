@@ -47,7 +47,11 @@ def gpu_infer_slot():
 
 
 class ObstacleDetectorClient:
-    def __init__(self, model_path: str = 'models/yoloe-11l-seg.pt'):
+    def __init__(self, model_path: str = None):
+        # 若未傳入路徑，從 config 讀取預設值
+        if model_path is None:
+            from config import OBSTACLE_MODEL
+            model_path = OBSTACLE_MODEL
         self.model = None
         self.whitelist_embeddings = None
         self.WHITELIST_CLASSES = [

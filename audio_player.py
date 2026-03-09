@@ -28,12 +28,8 @@ def _get_recorder():
             _recorder_imported = True  # 标记已尝试，避免重复
     return _sync_recorder
 
-# 兼容旧工程中的示例音频（保留）
-AUDIO_BASE_DIR = r"C:\Users\Administrator\Desktop\rebuild1002\music"
-
-# 新增：voice 目录与映射表
-# 使用脚本所在目录的 voice 文件夹，避免工作目录问题
-VOICE_DIR = os.getenv("VOICE_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice"))
+# 音訊目錄從 config.py 讀取（路徑由 .env 的 AUDIO_BASE_DIR / VOICE_DIR 提供）
+from config import AUDIO_BASE_DIR, VOICE_DIR
 VOICE_MAP_FILE = os.path.join(VOICE_DIR, "map.zh-CN.json")
 
 # 音频文件映射（将合并 voice 映射）
@@ -47,6 +43,8 @@ AUDIO_MAP = {
     "向前": os.path.join(AUDIO_BASE_DIR, "音频7.wav"),
     "后退": os.path.join(AUDIO_BASE_DIR, "音频8.wav"),
     "拿到物体": os.path.join(AUDIO_BASE_DIR, "音频9.wav"),
+    # 開機歡迎音效
+    "歡迎使用AI智慧眼鏡": os.path.join(AUDIO_BASE_DIR, "歡迎使用AI智慧眼鏡.wav"),
 }
 
 # 音频缓存，避免重复读取
@@ -61,6 +59,24 @@ _is_playing = False  # 标记是否正在播放音频
 _playing_lock = threading.Lock()  # 播放锁
 _initialized = False
 _last_play_ts = 0.0  # 记录上次播放结束时间，用于决定预热静音长度
+
+def load_mp3_file(filepath):
+    """使用 pydub 載入 MP3 並轉換為 PCM16 8kHz 單聲道（與 load_wav_file 輸出格式一致）"""
+    if filepath in _audio_cache:
+        return _audio_cache[filepath]
+    try:
+        from pydub import AudioSegment
+        audio = AudioSegment.from_mp3(filepath)
+        # 統一轉換為單聲道、16-bit、8kHz
+        audio = audio.set_channels(1).set_sample_width(2).set_frame_rate(8000)
+        frames = audio.raw_data
+        _audio_cache[filepath] = frames
+        print(f"[AUDIO] MP3 載入完成: {filepath} ({len(frames)//16000:.1f}s)")
+        return frames
+    except Exception as e:
+        print(f"[AUDIO] MP3 載入失敗 {filepath}: {e}")
+        return None
+
 
 def load_wav_file(filepath):
     """加载WAV文件并返回PCM数据（自动转换为8kHz）"""
@@ -145,15 +161,9 @@ def preload_all_audio():
     
     for audio_key, filepath in AUDIO_MAP.items():
         if os.path.exists(filepath):
-            # 【修复】暂时使用默认速度加载
-            # need_speedup = any(keyword in audio_key for keyword in speedup_keywords)
-            # speed = speedup_factor if need_speedup else 1.0
-            
-            data = load_wav_file(filepath)  # 使用默认参数
+            data = load_wav_file(filepath)
             if data:
                 loaded_count += 1
-                # if need_speedup:
-                #     print(f"[AUDIO] 加载（加速{speedup_factor}x）: {audio_key}")
         else:
             # 降低噪声输出
             pass

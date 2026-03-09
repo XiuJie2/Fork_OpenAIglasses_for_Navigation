@@ -98,7 +98,8 @@ def init_all_models():
         # --- [1] 加载通用的障碍物检测器 (ObstacleDetectorClient) ---
         global obstacle_detector_client
         logger.info("[1/4] 正在加载通用障碍物检测模型 (ObstacleDetectorClient)...")
-        obstacle_detector_client = ObstacleDetectorClient(model_path='models/yoloe-11l-seg.pt')
+        from config import OBSTACLE_MODEL
+        obstacle_detector_client = ObstacleDetectorClient(model_path=OBSTACLE_MODEL)
 
         # 🔥🔥🔥 【核心修复】在这里添加缺失的设备转移代码 🔥🔥🔥
         if hasattr(obstacle_detector_client, 'model') and obstacle_detector_client.model is not None:
@@ -109,14 +110,17 @@ def init_all_models():
         # --- [2] 加载过马路专用的模型 (Clients) ---
         global crosswalk_detector_client, coco_client
         logger.info("[2/4] 正在加载过马路分割模型 (CrosswalkDetector)...")
-        crosswalk_detector_client = CrosswalkDetector(model_path='models/yolo-seg.pt')
+        from config import BLIND_PATH_MODEL
+        crosswalk_detector_client = CrosswalkDetector(model_path=BLIND_PATH_MODEL)
         # 将其内部的YOLO模型移动到指定设备
         if hasattr(crosswalk_detector_client, 'model') and crosswalk_detector_client.model is not None:
             crosswalk_detector_client.model.to(DEVICE)
         logger.info("...过马路分割模型加载成功。")
 
         logger.info("[3/4] 正在加载通用感知模型 (COCOClient)...")
-        coco_client = COCOClient(model_path='models/yolov8l-world.pt')
+        # yolov8l-world.pt 為舊架構用途，路徑尚未納入 config.py
+        # 若需使用請在 .env 加入 COCO_MODEL=model/yolov8l-world.pt
+        coco_client = COCOClient(model_path=os.getenv("COCO_MODEL", "model/yolov8l-world.pt"))
         # 将其内部的YOLO模型移动到指定设备
         if hasattr(coco_client, 'model') and coco_client.model is not None:
             coco_client.model.to(DEVICE)
@@ -125,7 +129,8 @@ def init_all_models():
         # --- [4] 加载盲道专用的模型 ---
         global blindpath_seg_model, blindpath_whitelist_embeddings
         logger.info("[4/4] 正在加载盲道专用分割模型 (YOLO)...")
-        blindpath_seg_model = YOLO('models/yolo-seg.pt')
+        from config import BLIND_PATH_MODEL
+        blindpath_seg_model = YOLO(BLIND_PATH_MODEL)
         blindpath_seg_model.to(DEVICE)
         blindpath_seg_model.fuse()
         logger.info("...盲道专用分割模型加载成功。")

@@ -76,6 +76,8 @@ async def hard_reset_audio(reason: str = ""):
     if reason:
         print(f"[HARD-RESET] {reason}")
 
+VOLUME_GAIN = 5  # 輸出音量倍數（調整此值即可）
+
 async def broadcast_pcm16_realtime(pcm16: bytes):
     """以 20ms 节拍把 pcm16 发送给所有仍存活的连接；队列满丢尾，保持实时。"""
     # 【新增】录制音频（在分发之前整体录制，避免分片）
@@ -84,7 +86,12 @@ async def broadcast_pcm16_realtime(pcm16: bytes):
         sync_recorder.record_audio(pcm16, text="[Omni对话]")
     except Exception:
         pass  # 静默失败，不影响播放
-    
+
+    # 放大音量（audioop.mul 會自動對溢位做截斷，不會爆音）
+    if VOLUME_GAIN != 1:
+        import audioop
+        pcm16 = audioop.mul(pcm16, 2, VOLUME_GAIN)
+
     loop = asyncio.get_event_loop()
     next_tick = loop.time()
     off = 0

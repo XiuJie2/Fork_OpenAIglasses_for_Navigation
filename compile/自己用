@@ -1,11 +1,6 @@
 // ===== all_in_one_merged.ino — XIAO ESP32S3 Sense: Camera + Mic (PDM) + IMU (ICM42688 SPI) =====
 // ===== 版本: v2.4-SPIIMU - ICM42688 改为 SPI，避开 I2S 干扰；WAV chunked 播放保持 =====
 
-// ===== 修改這裡：WiFi 帳密 =====
-#define WIFI_SSID "HelloWorld"
-#define WIFI_PASS "Aa0978926291"
-// ================================
-
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_camera.h>
@@ -16,13 +11,15 @@
 struct WavFmt;
 #include <cstring>      // memcmp
 #include <WiFiUdp.h>
-#include <WiFiClient.h>
-#include <SPI.h>
+#include <WiFiClient.h> 
+#include <SPI.h>        // <<< 改成 SPI
 using namespace websockets;
 
-// ===== Server =====
-char           SERVER_HOST[32] = "";  // 由自動探索填入
-const uint16_t SERVER_PORT     = 8081;
+// ===== WiFi / Server =====
+const char* WIFI_SSID   = "HelloWorld";
+const char* WIFI_PASS   = "Aa0978926291";
+const char* SERVER_HOST = "10.250.238.157";
+const uint16_t SERVER_PORT = 8081;
 
 static const char* CAM_WS_PATH = "/ws/camera";
 static const char* AUD_WS_PATH = "/ws_audio";
@@ -63,7 +60,7 @@ const int TTS_RATE = 16000;
 #define IMU_SPI_MOSI  2   // D1
 #define IMU_SPI_MISO  3   // D2
 #define IMU_SPI_CS    4   // D3
-// UDP_HOST 改用 SERVER_HOST（由自動探索填入）
+const char* UDP_HOST  = "10.250.238.157";
 const int   UDP_PORT  = 12345;
 
 WiFiUDP udp;
@@ -784,7 +781,7 @@ bool imu_init_spi(){
   delay(5);
 
   uint8_t who = imu_read8(REG_WHO_AM_I);
-  Serial.printf("[IMU] WHO_AM_I=0x%02X (expect 0x47) -> %s\n", who, who == 0x47 ? "TRUE" : "ERROR");
+  Serial.printf("[IMU] WHO_AM_I=0x%02X (expect 0x47)\n", who);
   if (who != 0x47) return false;
 
   imu_write8(REG_PWR_MGMT0, 0x0F); // accel+gyro LN
@@ -854,46 +851,12 @@ void taskImuLoop(void*){
       ts, tempC, ax_f, ay_f, az_f, gx, gy, gz);
 
     if (n > 0) {
-      udp.beginPacket(SERVER_HOST, UDP_PORT);
+      udp.beginPacket(UDP_HOST, UDP_PORT);
       udp.write((const uint8_t*)buf, n);
       udp.endPacket();
     }
     vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz
   }
-}
-
-// ====================================================================
-// 自動探索伺服器 IP（廣播 AIGLASS_DISCOVER，等待 Python 回應）
-// ====================================================================
-void discover_server() {
-  WiFiUDP disc;
-  disc.begin(12346);
-  Serial.println("[DISC] 廣播尋找伺服器...");
-
-  for (int attempt = 0; attempt < 3; attempt++) {
-    disc.beginPacket(IPAddress(255, 255, 255, 255), 12346);
-    disc.write((const uint8_t*)"AIGLASS_DISCOVER", 16);
-    disc.endPacket();
-
-    uint32_t t0 = millis();
-    while (millis() - t0 < 1500) {
-      int n = disc.parsePacket();
-      if (n > 0) {
-        char buf[48] = {};
-        disc.read(buf, min(n, (int)sizeof(buf) - 1));
-        if (strncmp(buf, "AIGLASS_HOST:", 13) == 0) {
-          strncpy(SERVER_HOST, buf + 13, sizeof(SERVER_HOST) - 1);
-          Serial.printf("[DISC] 找到伺服器: %s\n", SERVER_HOST);
-          disc.stop();
-          return;
-        }
-      }
-      delay(10);
-    }
-    Serial.printf("[DISC] 第 %d 次未回應，重試...\n", attempt + 1);
-  }
-  Serial.printf("[DISC] 探索失敗，使用備援 IP: %s\n", SERVER_HOST);
-  disc.stop();
 }
 
 // ====================================================================
@@ -908,12 +871,11 @@ void setup() {
   esp_wifi_set_ps(WIFI_PS_NONE);
   esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
+
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("[WiFi] connecting");
-  while (WiFi.status() != WL_CONNECTED) { delay(300); Serial.print("."); }
+  while (WiFi.status()!=WL_CONNECTED){ delay(300); Serial.print("."); }
   Serial.println(" OK " + WiFi.localIP().toString());
-
-  discover_server();   // 自動廣播找伺服器 IP
 
   if (!init_camera()) { Serial.println("[CAM] init failed, reboot..."); delay(1500); esp_restart(); }
 
