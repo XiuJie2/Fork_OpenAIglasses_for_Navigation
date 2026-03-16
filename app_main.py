@@ -4,6 +4,7 @@ import os, sys, time, json, asyncio, base64, audioop
 from typing import Any, Dict, Optional, Tuple, List, Callable, Set, Deque
 from collections import deque
 import re
+import auth  # 使用者認證與管理模組
 from qwen_extractor import extract_english_label
 from navigation_master import NavigationMaster, OrchestratorResult
 from workflow_blindpath import BlindPathNavigator
@@ -1541,6 +1542,37 @@ class UDPProto(asyncio.DatagramProtocol):
 
 
 
+# === 初始化使用者認證資料庫 ===
+@app.on_event("startup")
+async def on_startup_auth():
+    auth.init_db()
+
+
+# === UDP 廣播：讓 App 自動發現伺服器 IP ===
+@app.on_event("startup")
+async def on_startup_udp_broadcast():
+    """每 2 秒廣播伺服器資訊到區網，App 監聽 port 47777 後自動連線"""
+    import socket as _socket
+
+    def _broadcast():
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_BROADCAST, 1)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        msg = json.dumps({
+            "service": "ai_glasses",
+            "port":    SERVER_PORT,
+        }).encode()
+        print(f"[DISCOVERY] UDP 廣播已啟動（port 47777，每 2 秒）", flush=True)
+        while True:
+            try:
+                sock.sendto(msg, ('<broadcast>', 47777))
+            except Exception:
+                pass
+            time.sleep(2)
+
+    threading.Thread(target=_broadcast, daemon=True).start()
+
+
 # === 新增：注册给 bridge_io 的发送回调（把 JPEG 广播给 /ws/viewer） ===
 @app.on_event("startup")
 async def on_startup_register_bridge_sender():
@@ -1791,6 +1823,195 @@ def get_last_frames():
 
 def get_camera_ws():
     return esp32_camera_ws
+
+
+# ============================================================
+# Android App API：使用者認證、導航控制、緊急連絡人
+# ============================================================
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+def _require_token(
+    creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+) -> dict:
+    """驗證 Bearer token，回傳 payload；失敗拋出 401"""
+    if not creds:
+        raise HTTPException(status_code=401, detail="缺少 Authorization header")
+    payload = auth.verify_token(creds.credentials)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Token 無效或已過期")
+    return payload
+
+
+def _require_admin(payload: dict = Depends(_require_token)) -> dict:
+    """只允許 admin 角色"""
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理員權限")
+    return payload
+
+
+# ── 認證端點 ──────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/login")
+def api_login(req: LoginRequest):
+    result = auth.login(req.username, req.password)
+    if not result:
+        raise HTTPException(status_code=401, detail="帳號或密碼錯誤")
+    return result
+
+
+@app.get("/api/me")
+def api_me(payload: dict = Depends(_require_token)):
+    user = auth.get_user(int(payload["sub"]))
+    if not user:
+        raise HTTPException(status_code=404, detail="使用者不存在")
+    return user
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@app.post("/api/me/password")
+def api_change_password(req: ChangePasswordRequest,
+                        payload: dict = Depends(_require_token)):
+    result = auth.change_own_password(int(payload["sub"]),
+                                      req.old_password, req.new_password)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+# ── 使用者管理（Admin Only）────────────────────────────────────────────────────
+
+@app.get("/api/users")
+def api_list_users(payload: dict = Depends(_require_admin)):
+    return auth.list_users()
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "user"
+
+
+@app.post("/api/users")
+def api_create_user(req: CreateUserRequest,
+                    payload: dict = Depends(_require_admin)):
+    result = auth.create_user(req.username, req.password, req.role)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
+
+class UpdateUserRequest(BaseModel):
+    role:     Optional[str]  = None
+    enabled:  Optional[bool] = None
+    password: Optional[str]  = None
+
+
+@app.put("/api/users/{user_id}")
+def api_update_user(user_id: int, req: UpdateUserRequest,
+                    payload: dict = Depends(_require_admin)):
+    return auth.update_user(user_id, req.role, req.enabled, req.password)
+
+
+@app.delete("/api/users/{user_id}")
+def api_delete_user(user_id: int, payload: dict = Depends(_require_admin)):
+    if str(user_id) == payload["sub"]:
+        raise HTTPException(status_code=400, detail="不能刪除自己")
+    return auth.delete_user(user_id)
+
+
+# ── 緊急連絡人（每位使用者管理自己的）────────────────────────────────────────
+
+@app.get("/api/contacts")
+def api_list_contacts(payload: dict = Depends(_require_token)):
+    return auth.list_contacts(int(payload["sub"]))
+
+
+class ContactRequest(BaseModel):
+    name:  str
+    phone: str
+
+
+@app.post("/api/contacts")
+def api_add_contact(req: ContactRequest,
+                    payload: dict = Depends(_require_token)):
+    return auth.add_contact(int(payload["sub"]), req.name, req.phone)
+
+
+@app.put("/api/contacts/{contact_id}")
+def api_update_contact(contact_id: int, req: ContactRequest,
+                       payload: dict = Depends(_require_token)):
+    return auth.update_contact(contact_id, int(payload["sub"]),
+                               req.name, req.phone)
+
+
+@app.delete("/api/contacts/{contact_id}")
+def api_delete_contact(contact_id: int,
+                       payload: dict = Depends(_require_token)):
+    return auth.delete_contact(contact_id, int(payload["sub"]))
+
+
+# ── 導航控制端點（operator 以上可使用）───────────────────────────────────────
+
+class ItemSearchRequest(BaseModel):
+    item_name: str = ""
+
+
+@app.post("/api/nav/blindpath")
+async def api_nav_blindpath():
+    """啟動盲道導航（不需登入）"""
+    await start_ai_with_text_custom("開始導航")
+    return {"ok": True, "state": orchestrator.get_state() if orchestrator else "unavailable"}
+
+
+@app.post("/api/nav/crossing")
+async def api_nav_crossing():
+    """啟動過馬路模式（不需登入）"""
+    await start_ai_with_text_custom("開始過馬路")
+    return {"ok": True, "state": orchestrator.get_state() if orchestrator else "unavailable"}
+
+
+@app.post("/api/nav/traffic_light")
+async def api_nav_traffic_light():
+    """啟動紅綠燈偵測（不需登入）"""
+    await start_ai_with_text_custom("檢測紅綠燈")
+    return {"ok": True, "state": orchestrator.get_state() if orchestrator else "unavailable"}
+
+
+@app.post("/api/nav/item_search")
+async def api_nav_item_search(req: ItemSearchRequest):
+    """啟動物品尋找（不需登入）"""
+    text = f"幫我找{req.item_name}" if req.item_name else "幫我找東西"
+    await start_ai_with_text_custom(text)
+    return {"ok": True, "state": orchestrator.get_state() if orchestrator else "unavailable"}
+
+
+@app.post("/api/nav/stop")
+async def api_nav_stop():
+    """停止目前導航（不需登入）"""
+    await start_ai_with_text_custom("停止導航")
+    return {"ok": True, "state": orchestrator.get_state() if orchestrator else "unavailable"}
+
+
+@app.get("/api/nav/state")
+def api_nav_state():
+    """查詢目前導航狀態（不需登入）"""
+    state = orchestrator.get_state() if orchestrator else "unavailable"
+    return {"state": state}
+
 
 if __name__ == "__main__":
     uvicorn.run(

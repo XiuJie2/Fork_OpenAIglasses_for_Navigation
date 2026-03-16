@@ -119,7 +119,12 @@ INTERRUPT_KEYWORDS = set(
 )
 
 # ── 喚醒詞 / 結束詞設定 ──────────────────────────────────────────────────────
-WAKE_WORDS = set(os.getenv("WAKE_WORDS", "哈囉 曼波,哈囉曼波,哈囉，曼波,哈喽曼波,哈喽漫播,哈喽 曼波,哈喽，曼波").split(","))
+WAKE_WORDS = set(os.getenv("WAKE_WORDS", (
+    # 標準喚醒詞
+    "哈囉 曼波,哈囉曼波,哈囉，曼波,哈喽曼波,哈喽漫播,哈喽 曼波,哈喽，曼波,"
+    # ASR 誤辨常見變體（含「羅曼波」可涵蓋「阿羅曼波」「沙羅曼波」）
+    "羅曼波,哈囉慢播,哈囉嗎"
+)).split(","))
 END_WORDS  = set(os.getenv("END_WORDS",  "謝謝 曼波,謝謝曼波,謝謝，曼波,谢谢曼波,谢谢漫播,谢谢 曼波").split(","))
 
 # ── ASR 全局總閘 ─────────────────────────────────────────────────────────────
@@ -507,7 +512,7 @@ class GroqASR:
             # 因為 Groq 常將後半段音節誤轉或截斷
             if not matched:
                 HELLO_VARIANTS = ("哈囉", "哈喽", "哈啰")
-                MABO_VARIANTS  = ("曼波", "漫播", "漫波", "曼播", "慢波", "曼", "漫")
+                MABO_VARIANTS  = ("曼波", "漫播", "漫波", "曼播", "慢波", "慢播", "曼", "漫")
                 has_hello = any(v in norm for v in HELLO_VARIANTS)
                 has_mabo  = any(v in norm for v in MABO_VARIANTS)
                 matched = has_hello and has_mabo
@@ -575,7 +580,7 @@ class GoogleASR:
 
     # 喚醒詞寬鬆比對關鍵字
     _HELLO_VARIANTS = ("哈囉", "哈喽", "哈啰")
-    _MABO_VARIANTS  = ("曼波", "漫播", "漫波", "曼播", "慢波", "曼", "漫")
+    _MABO_VARIANTS  = ("曼波", "漫播", "漫波", "曼播", "慢波", "慢播", "曼", "漫")
 
     def __init__(self, credentials_path: str, sample_rate: int, callback: "ASRCallback"):
         self._credentials_path = credentials_path
@@ -746,7 +751,8 @@ class GoogleASR:
             # 熱詞：提高「曼波」相關詞的辨識權重
             speech_contexts=[_speech.SpeechContext(
                 phrases=["哈囉曼波", "哈囉 曼波", "謝謝曼波", "謝謝 曼波",
-                         "曼波", "漫波", "漫播"],
+                         "羅曼波", "哈囉慢播", "哈囉嗎",
+                         "曼波", "漫波", "漫播", "慢播"],
                 boost=20.0,
             )],
         )
