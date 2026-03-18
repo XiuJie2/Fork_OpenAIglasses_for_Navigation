@@ -97,6 +97,8 @@ SAMPLE_RATE: int = int(os.getenv("AUDIO_SAMPLE_RATE", "16000"))
 CHUNK_MS: int = int(os.getenv("AUDIO_CHUNK_MS", "20"))
 # ASR 上傳格式
 AUDIO_FORMAT: str = os.getenv("AUDIO_FORMAT", "pcm")
+# 音訊下行串流採樣率（TTS 播放，ESP32 喇叭）
+STREAM_SR: int = int(os.getenv("STREAM_SR", "8000"))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TTS / 語音播報

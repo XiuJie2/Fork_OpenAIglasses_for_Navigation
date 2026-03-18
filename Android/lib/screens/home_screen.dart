@@ -19,11 +19,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _scrollCtrl = ScrollController();
+  bool? _prevConnected;  // 追蹤上次連線狀態，用於偵測狀態變化
 
   @override
   void initState() {
     super.initState();
-    context.read<AppProvider>().addListener(_scrollToBottom);
+    final app = context.read<AppProvider>();
+    _prevConnected = app.connected;
+    app.addListener(_scrollToBottom);
+    app.addListener(_onConnectionChanged);
   }
 
   void _scrollToBottom() {
@@ -38,9 +42,50 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// 監聽連線狀態變化，斷線或重連時彈出 SnackBar 提示
+  void _onConnectionChanged() {
+    if (!mounted) return;
+    final nowConnected = context.read<AppProvider>().connected;
+    if (_prevConnected == nowConnected) return;  // 狀態未變，不處理
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  nowConnected ? Icons.wifi : Icons.wifi_off,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  nowConnected ? '✓ 已重新連線' : '⚠ 伺服器連線中斷，正在重連…',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+            backgroundColor: nowConnected
+                ? const Color(0xFF2E7D32)   // 重連成功 → 深綠
+                : const Color(0xFFC62828),  // 斷線 → 深紅
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            duration: Duration(seconds: nowConnected ? 2 : 4),
+          ),
+        );
+    });
+    _prevConnected = nowConnected;
+  }
+
   @override
   void dispose() {
-    context.read<AppProvider>().removeListener(_scrollToBottom);
+    final app = context.read<AppProvider>();
+    app.removeListener(_scrollToBottom);
+    app.removeListener(_onConnectionChanged);
     _scrollCtrl.dispose();
     super.dispose();
   }

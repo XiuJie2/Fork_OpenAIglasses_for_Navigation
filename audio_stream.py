@@ -7,7 +7,7 @@ from fastapi import Request
 from fastapi.responses import StreamingResponse
 
 # ===== 下行 WAV 流基础参数 =====
-STREAM_SR = 8000  # 改为8kHz，ESP32支持
+from config import STREAM_SR  # 從集中設定檔讀取下行串流採樣率
 STREAM_CH = 1
 STREAM_SW = 2
 BYTES_PER_20MS_16K = STREAM_SR * STREAM_SW * 20 // 1000  # 320B (8kHz)

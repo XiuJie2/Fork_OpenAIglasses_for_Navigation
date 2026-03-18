@@ -69,6 +69,16 @@ import sync_recorder
 
 app = FastAPI()
 
+# CORS：允許 Website 管理後台（任何來源）跨域呼叫 FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ====== 状态与容器 ======
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -83,6 +93,9 @@ esp32_camera_ws: Optional[WebSocket] = None
 _welcome_played: bool = False  # 歡迎音效只播一次
 imu_ws_clients: Set[WebSocket] = set()
 esp32_audio_ws: Optional[WebSocket] = None
+
+# ── IDLE/CHAT 短句過濾門檻（字數 < 此值且無關鍵字則丟棄，0 = 不過濾）──────
+_idle_filter_min_chars: int = 4   # 預設 4 字，旁路模式課堂轉錄建議設為 1
 
 # ── 說話人聲紋錄製（Enrollment）狀態 ──────────────────────────────────────
 _enroll_active:  bool       = False   # 是否正在錄製聲紋
@@ -294,6 +307,11 @@ async def ui_broadcast_partial(text: str):
     global current_partial
     current_partial = text
     await ui_broadcast_raw("PARTIAL:" + text)
+    # 同步推送到聲紋 Dashboard SSE（即時顯示辨識中文字）
+    if text and text.strip() and _speaker_sse_queues:
+        asyncio.create_task(_speaker_event_push({
+            "type": "asr_partial", "text": text, "ts": time.time(),
+        }))
 
 async def ui_broadcast_final(text: str):
     global current_partial, recent_finals
@@ -303,6 +321,11 @@ async def ui_broadcast_final(text: str):
         recent_finals = recent_finals[-RECENT_MAX:]
     await ui_broadcast_raw("FINAL:" + text)
     print(f"[ASR/AI FINAL] {text}", flush=True)
+    # 同步推送到聲紋 Dashboard SSE（顯示最終辨識結果）
+    if text and _speaker_sse_queues:
+        asyncio.create_task(_speaker_event_push({
+            "type": "asr_final", "text": text, "ts": time.time(),
+        }))
 
 async def full_system_reset(reason: str = ""):
     """
@@ -607,16 +630,23 @@ async def start_ai_with_text_custom(user_text: str):
         return
 
     # IDLE/CHAT 模式下防止環境雜訊誤觸發：
-    # 文字必須 >= 4 字，或包含明確的對話觸發關鍵字
+    # 文字必須 >= IDLE_FILTER_MIN_CHARS 字，或包含明確的對話觸發關鍵字
+    # 旁路模式下通常用於課堂轉錄等情境，可透過 /api/set_param?name=idle_filter_min_chars&value=1 放寬
     _CHAT_TRIGGER_KEYWORDS = [
         "帮我", "幫我", "看看", "看一下", "前面", "什么", "什麼",
         "有没有", "有沒有", "告訴", "告诉", "描述", "識別", "识别",
         "找", "開始", "开始", "導航", "导航", "過馬路", "过马路",
         "說明書", "使用說明", "紅綠燈", "红绿灯",
     ]
-    if len(user_text) < 4 and not any(kw in user_text for kw in _CHAT_TRIGGER_KEYWORDS):
-        print(f"[IDLE過濾] 過短語音丟棄（{len(user_text)}字）: '{user_text}'", flush=True)
+    keyword_hits = [kw for kw in _CHAT_TRIGGER_KEYWORDS if kw in user_text]
+    if len(user_text) < _idle_filter_min_chars and len(keyword_hits) < 2:
+        print(
+            f"[IDLE過濾] 過短語音丟棄（{len(user_text)}字，命中關鍵字 {len(keyword_hits)} 個）: '{user_text}'",
+            flush=True,
+        )
         return
+    if keyword_hits:
+        print(f"[IDLE過濾] 關鍵字命中 {len(keyword_hits)} 個 {keyword_hits}，通過", flush=True)
 
     # 原有的AI对话逻辑
     await start_ai_with_text(user_text)
@@ -774,6 +804,42 @@ async def verify_continuous(enabled: bool):
     status = "開啟" if enabled else "關閉"
     print(f"[VERIFY] 持續監測模式已{status}", flush=True)
     return {"continuous": enabled, "message": f"持續監測已{status}，請看伺服器終端機輸出"}
+
+@app.post("/api/set_param")
+async def api_set_param(name: str, value: float):
+    """動態調整 ASR / 聲紋相關參數（不重啟生效）
+    可調參數：threshold / standby_rms / pcm_gain / silence_sec / silence_rms
+    """
+    try:
+        import asr_core as _asr
+        import speaker_verifier as _sv
+
+        if name == "threshold":
+            _sv.set_threshold(value)
+            msg = f"聲紋相似度門檻設為 {_sv.THRESHOLD:.2f}"
+        elif name == "standby_rms":
+            _asr.set_standby_rms_thresh(value)
+            msg = f"待機靜音 RMS 門檻設為 {_asr.STANDBY_RMS_THRESH:.0f}"
+        elif name == "pcm_gain":
+            _asr.set_pcm_gain(value)
+            msg = f"麥克風增益設為 {_asr.PCM_GAIN:.1f}x"
+        elif name == "silence_sec":
+            _asr.set_silence_sec(value)
+            msg = f"主動錄音靜音判斷秒數設為 {value:.1f}s"
+        elif name == "silence_rms":
+            _asr.set_silence_rms_thresh(value)
+            msg = f"主動模式靜音 RMS 門檻設為 {value:.0f}"
+        elif name == "idle_filter_min_chars":
+            global _idle_filter_min_chars
+            _idle_filter_min_chars = max(0, int(value))
+            msg = f"短句過濾門檻設為 {_idle_filter_min_chars} 字（0 = 不過濾）"
+        else:
+            return {"status": "error", "detail": f"未知參數：{name}"}
+
+        print(f"[SET_PARAM] {msg}", flush=True)
+        return {"status": "ok", "name": name, "value": value, "message": msg}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 
 @app.post("/api/bypass_wake")
 async def bypass_wake(enabled: bool):
@@ -1962,6 +2028,34 @@ def api_update_contact(contact_id: int, req: ContactRequest,
 def api_delete_contact(contact_id: int,
                        payload: dict = Depends(_require_token)):
     return auth.delete_contact(contact_id, int(payload["sub"]))
+
+
+# ── 管理員級別連絡人端點（Website 後台用，可操作任意用戶）──────────────────
+
+@app.get("/api/admin/users/{user_id}/contacts")
+def api_admin_list_contacts(user_id: int,
+                            payload: dict = Depends(_require_admin)):
+    return auth.list_contacts(user_id)
+
+
+@app.post("/api/admin/users/{user_id}/contacts")
+def api_admin_add_contact(user_id: int, req: ContactRequest,
+                          payload: dict = Depends(_require_admin)):
+    return auth.add_contact(user_id, req.name, req.phone)
+
+
+@app.put("/api/admin/contacts/{contact_id}")
+def api_admin_update_contact(contact_id: int, req: ContactRequest,
+                             user_id: int,
+                             payload: dict = Depends(_require_admin)):
+    return auth.update_contact(contact_id, user_id, req.name, req.phone)
+
+
+@app.delete("/api/admin/contacts/{contact_id}")
+def api_admin_delete_contact(contact_id: int,
+                             user_id: int,
+                             payload: dict = Depends(_require_admin)):
+    return auth.delete_contact(contact_id, user_id)
 
 
 # ── 導航控制端點（operator 以上可使用）───────────────────────────────────────

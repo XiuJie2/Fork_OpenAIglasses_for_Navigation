@@ -738,6 +738,7 @@ class GoogleASR:
 
     def _stream_loop(self):
         """主串流執行緒：含自動重啟邏輯"""
+
         import os as _os
         _os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = self._credentials_path
         from google.cloud import speech as _speech
@@ -783,3 +784,26 @@ class GoogleASR:
                     time.sleep(2)
             finally:
                 stop_event.set()
+
+
+# ── 動態參數調整（Dashboard 用，不重啟生效）────────────────────────────────────
+
+def set_standby_rms_thresh(value: float):
+    """設定待機靜音門檻（低於此 RMS 不送 ASR）"""
+    global STANDBY_RMS_THRESH
+    STANDBY_RMS_THRESH = float(value)
+
+def set_pcm_gain(value: float):
+    """設定麥克風增益倍數"""
+    global PCM_GAIN
+    PCM_GAIN = float(value)
+
+def set_silence_sec(value: float):
+    """設定主動模式靜音判斷秒數"""
+    GroqASR.SILENCE_SEC   = float(value)
+    GoogleASR.SILENCE_SEC = float(value)
+
+def set_silence_rms_thresh(value: float):
+    """設定主動模式靜音 RMS 門檻"""
+    GroqASR.SILENCE_RMS_THRESH   = float(value)
+    GoogleASR.SILENCE_RMS_THRESH = float(value)
