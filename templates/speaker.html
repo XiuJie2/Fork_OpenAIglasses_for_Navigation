@@ -293,7 +293,7 @@
 
 <!-- 頂部導航 -->
 <nav>
-  <a href="/">← 返回主頁</a>
+  <a id="homeLink" href="/GlassesBackstage/">← 返回主頁</a>
   <span class="sep">|</span>
   <span class="title">聲紋管理 Dashboard</span>
   <span class="spacer"></span>
@@ -591,6 +591,9 @@
 </div><!-- /grid -->
 
 <script>
+// ── 路徑前綴（反向代理相容）────────────────────────────────────────────────
+const BASE = location.pathname.startsWith('/GlassesBackstage') ? '/GlassesBackstage' : '';
+
 // ==============================
 // 工具函式
 // ==============================
@@ -692,7 +695,7 @@ function addHistory(type, sim, rms, passed, text) {
 // ==============================
 async function fetchStatus() {
   try {
-    const r = await fetch('/api/enroll_status');
+    const r = await fetch(BASE+'/api/enroll_status');
     const d = await r.json();
     const sv = d.speaker_verifier || {};
 
@@ -766,7 +769,7 @@ let sseSource = null;
 
 function connectSSE() {
   if (sseSource) sseSource.close();
-  sseSource = new EventSource('/api/speaker_events');
+  sseSource = new EventSource(BASE+'/api/speaker_events');
 
   sseSource.onopen = () => {
     $('connDot').classList.add('connected');
@@ -915,7 +918,7 @@ $('btnEnroll').addEventListener('click', async () => {
   $('btnEnroll').disabled = true;
 
   try {
-    const r = await fetch('/api/enroll_speaker', { method: 'POST' });
+    const r = await fetch(BASE+'/api/enroll_speaker', { method: 'POST' });
     const d = await r.json();
     log(`開始錄製聲紋：${d.message}`, 'log-info');
 
@@ -947,7 +950,7 @@ $('btnEnroll').addEventListener('click', async () => {
 $('btnDelete').addEventListener('click', async () => {
   if (!confirm('確定要刪除已儲存的聲紋嗎？')) return;
   try {
-    const r = await fetch('/api/delete_speaker', { method: 'POST' });
+    const r = await fetch(BASE+'/api/delete_speaker', { method: 'POST' });
     const d = await r.json();
     log('聲紋已刪除：' + JSON.stringify(d), 'log-warn');
     $('enrollResult').style.display = 'none';
@@ -963,7 +966,7 @@ $('btnDelete').addEventListener('click', async () => {
 $('togVerify').addEventListener('change', async e => {
   const enabled = e.target.checked;
   try {
-    const r = await fetch(`/api/speaker_verify_toggle?enabled=${enabled}`, { method: 'POST' });
+    const r = await fetch(`${BASE}/api/speaker_verify_toggle?enabled=${enabled}`, { method: 'POST' });
     const d = await r.json();
     log(`說話人驗證已${enabled ? '開啟' : '關閉'}`, enabled ? 'log-ok' : 'log-warn');
     fetchStatus();
@@ -982,7 +985,7 @@ $('togContinuous').addEventListener('change', async e => {
   continuousState = enabled;
   const el = $('statusContinuous');
   try {
-    const r = await fetch(`/api/verify_continuous?enabled=${enabled}`, { method: 'POST' });
+    const r = await fetch(`${BASE}/api/verify_continuous?enabled=${enabled}`, { method: 'POST' });
     const d = await r.json();
     el.textContent  = enabled ? '開啟' : '關閉';
     el.className    = 'badge ' + (enabled ? 'badge-ok' : 'badge-warn');
@@ -999,7 +1002,7 @@ $('togContinuous').addEventListener('change', async e => {
 $('togBypass').addEventListener('change', async e => {
   const enabled = e.target.checked;
   try {
-    await fetch(`/api/bypass_wake?enabled=${enabled}`, { method: 'POST' });
+    await fetch(`${BASE}/api/bypass_wake?enabled=${enabled}`, { method: 'POST' });
     log(`旁路喚醒詞已${enabled ? '開啟' : '關閉'}`, enabled ? 'log-warn' : 'log-info');
   } catch (err) {
     log('切換失敗：' + err, 'log-err');
@@ -1021,7 +1024,7 @@ $('btnTest').addEventListener('click', async () => {
   $('btnTest').disabled = true;
 
   try {
-    const r = await fetch('/api/test_speaker_verify', { method: 'POST' });
+    const r = await fetch(BASE+'/api/test_speaker_verify', { method: 'POST' });
     const d = await r.json();
     log(`開始驗證測試：${d.message}`, 'log-info');
 
@@ -1039,7 +1042,7 @@ $('btnTest').addEventListener('click', async () => {
         $('btnTest').disabled = false;
         // 查詢結果
         try {
-          const rr = await fetch('/api/verify_result');
+          const rr = await fetch(BASE+'/api/verify_result');
           const dd = await rr.json();
           showTestResult(dd);
           if (dd.status === 'done') {
@@ -1091,7 +1094,7 @@ function flashInput(inp, ok) {
 
 async function applyParam(paramName, value, inp) {
   try {
-    const r = await fetch(`/api/set_param?name=${paramName}&value=${value}`, { method: 'POST' });
+    const r = await fetch(`${BASE}/api/set_param?name=${paramName}&value=${value}`, { method: 'POST' });
     const d = await r.json();
     if (d.status === 'ok') {
       log(`✔ ${d.message}`, 'log-ok');

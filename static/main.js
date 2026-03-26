@@ -1,5 +1,8 @@
 // static/main.js
 
+// 路徑前綴（支援 /GlassesBackstage/ 反向代理）
+const BASE_PATH = location.pathname.startsWith('/GlassesBackstage') ? '/GlassesBackstage' : '';
+
 // ================= 摄像头 + ASR =================
 (() => {
   const $camStatus = document.getElementById('camStatus');
@@ -252,7 +255,7 @@
   function connectCamera(){
     try{ if (wsCam) wsCam.close(); }catch(e){}
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    wsCam = new WebSocket(`${proto}://${location.host}/ws/viewer`);
+    wsCam = new WebSocket(`${proto}://${location.host}${BASE_PATH}/ws/viewer`);
     setBadge($camStatus, false, 'Camera: connecting…');
     wsCam.binaryType = 'arraybuffer';
     wsCam.onopen  = ()=> setBadge($camStatus, true, 'Camera: connected');
@@ -264,7 +267,7 @@
   function connectASR(){
     try{ if (wsUI) wsUI.close(); }catch(e){}
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    wsUI = new WebSocket(`${proto}://${location.host}/ws_ui`);
+    wsUI = new WebSocket(`${proto}://${location.host}${BASE_PATH}/ws_ui`);
     setBadge($asrStatus, false, 'ASR: connecting…');
     wsUI.onopen  = ()=> setBadge($asrStatus, true, 'ASR: connected');
     wsUI.onclose = ()=> setBadge($asrStatus, false, 'ASR: disconnected');
@@ -741,7 +744,7 @@ import { GLTFLoader } from 'https://unpkg.com/three@0.155.0/examples/jsm/loaders
     imu_ws_state.className = 'badge ' + (ok? 'ok' : 'err');
   }
 
-  const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');
+  const ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+BASE_PATH+'/ws');
   setImuBadge(false, 'connecting…');
   ws.onopen  = ()=> setImuBadge(true, 'connected');
   ws.onclose = ()=> setImuBadge(false, 'disconnected');
