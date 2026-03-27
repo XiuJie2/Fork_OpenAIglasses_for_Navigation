@@ -262,7 +262,12 @@ async def api_delete_contact(cid: int, _admin=Depends(require_admin)):
 @router.get("/api/admin/stats")
 async def api_admin_stats(_admin=Depends(require_admin)):
     """管理員統計資訊"""
-    import psutil
+    try:
+        import psutil
+        _has_psutil = True
+    except ImportError:
+        _has_psutil = False
+
     with get_db() as db:
         user_count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         contact_count = db.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
@@ -271,9 +276,14 @@ async def api_admin_stats(_admin=Depends(require_admin)):
         ).fetchall()
 
     # 系統資源
-    cpu_percent = psutil.cpu_percent(interval=0.1)
-    mem = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
+    if _has_psutil:
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage("/")
+    else:
+        cpu_percent = 0
+        mem = type('', (), {'used': 0, 'total': 0, 'percent': 0})()
+        disk = type('', (), {'used': 0, 'total': 0})()
 
     # GPU 資訊（如果有 CUDA）
     gpu_info = None

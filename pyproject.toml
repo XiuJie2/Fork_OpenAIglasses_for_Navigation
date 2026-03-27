@@ -29,6 +29,7 @@ dependencies = [
     "ultralytics>=8.4.24",
     "uvicorn[standard]==0.24.0",
     "websockets==12.0",
+    "psutil>=5.9.0",
 ]
 
 [[tool.uv.index]]

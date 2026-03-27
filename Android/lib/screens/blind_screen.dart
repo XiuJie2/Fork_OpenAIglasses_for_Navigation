@@ -438,6 +438,19 @@ class _MainPage extends StatelessWidget {
                       style: const TextStyle(
                           fontSize: 22, color: Colors.white70),
                     ),
+                    // GPS 導航距離提示
+                    if (app.gpsNavActive && app.gpsDistance < double.infinity)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Semantics(
+                          label: '距離目的地 ${app.gpsDistance < 1000 ? '${app.gpsDistance.toStringAsFixed(0)}公尺' : '${(app.gpsDistance / 1000).toStringAsFixed(1)}公里'}',
+                          child: Text(
+                            '距離目的地 ${app.gpsDistance < 1000 ? '${app.gpsDistance.toStringAsFixed(0)}公尺' : '${(app.gpsDistance / 1000).toStringAsFixed(1)}公里'}',
+                            style: const TextStyle(
+                                fontSize: 18, color: Colors.yellowAccent),
+                          ),
+                        ),
+                      ),
                   ],
                 ],
               ),

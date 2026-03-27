@@ -12,6 +12,14 @@ from collections import deque
 from workflow_blindpath import BlindPathNavigator, ProcessingResult as BlindResult
 from workflow_crossstreet import CrossStreetNavigator, CrossStreetResult as CrossResult
 
+def _log_nav(event: str, detail: str = ""):
+    """安全記錄導航事件到後台系統日誌"""
+    try:
+        from auth import log_navigation_event
+        log_navigation_event(event, detail)
+    except Exception:
+        pass
+
 # ========== 状态常量 ==========
 IDLE = "IDLE"                          # 空闲/未启用
 CHAT = "CHAT"                          # 对话模式（不进行导航，只返回原始画面）
@@ -295,30 +303,34 @@ class NavigationMaster:
         return self.state
     
     def start_blind_path_navigation(self):
-        """启动盲道导航模式"""
+        """啟動避障導航模式"""
         self.state = BLINDPATH_NAV
         self.cooldown_until = time.time() + self.COOLDOWN_SEC
         if self.blind:
             self.blind.reset()
-    
+        _log_nav("nav_start", "避障導航啟動")
+
     def stop_navigation(self):
-        """停止导航，回到对话模式"""
+        """停止導航，回到對話模式"""
         self.state = CHAT
         self.cooldown_until = time.time() + self.COOLDOWN_SEC
         if self.blind:
             self.blind.reset()
-    
+        _log_nav("nav_stop", "導航停止")
+
     def start_crossing(self):
-        """启动过马路模式"""
+        """啟動過馬路模式"""
         self.state = CROSSING
         self.cooldown_until = time.time() + self.COOLDOWN_SEC
         if self.cross:
             self.cross.reset()
-    
+        _log_nav("nav_crossing", "過馬路模式啟動")
+
     def start_traffic_light_detection(self):
-        """启动红绿灯检测模式"""
+        """啟動紅綠燈偵測模式"""
         self.state = TRAFFIC_LIGHT_DETECTION
         self.cooldown_until = time.time() + self.COOLDOWN_SEC
+        _log_nav("nav_traffic_light", "紅綠燈偵測啟動")
     
     def is_in_navigation_mode(self):
         """检查是否在导航模式（非对话模式）"""
@@ -335,6 +347,7 @@ class NavigationMaster:
         
         self.state = ITEM_SEARCH
         self.cooldown_until = time.time() + self.COOLDOWN_SEC
+        _log_nav("nav_item_search", "物品搜尋啟動")
     
     def stop_item_search(self, restore_nav: bool = True):
         """停止找物品模式"""

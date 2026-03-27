@@ -108,14 +108,18 @@ class _NavDestinationScreenState extends State<NavDestinationScreen> {
     );
   }
 
-  /// 選擇地點 → 啟動導航（Phase 1 先啟動避障導航，Phase 2 再接 GPS 路線規劃）
+  /// 選擇地點 → 啟動 GPS 導航（背景 Google Maps 報路 + 前景避障）
   void _onPlaceSelected(BuildContext context, AppProvider app,
       Map<String, dynamic> place) {
     HapticFeedback.heavyImpact();
-    final name = place['name'] as String;
-    app.speak('已選擇$name，啟動導航');
-    // Phase 1：先啟動避障導航，後續 Phase 接 GPS 路線
-    app.startBlindpath();
+    final lat = (place['latitude'] as num?)?.toDouble() ?? 0;
+    final lng = (place['longitude'] as num?)?.toDouble() ?? 0;
+    if (lat == 0 && lng == 0) {
+      // 沒有座標時語音提示，不離開頁面
+      app.speak('此地點沒有座標，請先編輯地點填入地址');
+      return;
+    }
+    app.startGpsNavigation(place);
     Navigator.pop(context);
   }
 
@@ -136,20 +140,28 @@ class _NavDestinationScreenState extends State<NavDestinationScreen> {
         content: const Text('刪除後無法復原',
             style: TextStyle(fontSize: 16, color: Colors.white70)),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消',
-                style: TextStyle(fontSize: 18, color: Colors.white54)),
+          Semantics(
+            label: '取消刪除',
+            button: true,
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消',
+                  style: TextStyle(fontSize: 18, color: Colors.white54)),
+            ),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade800),
-            onPressed: () {
-              app.deletePlace(id);
-              app.speak('已刪除$name');
-              Navigator.pop(ctx);
-            },
-            child: const Text('刪除',
-                style: TextStyle(fontSize: 18, color: Colors.white)),
+          Semantics(
+            label: '確認刪除$name',
+            button: true,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red.shade800),
+              onPressed: () {
+                app.deletePlace(id);
+                app.speak('已刪除$name');
+                Navigator.pop(ctx);
+              },
+              child: const Text('刪除',
+                  style: TextStyle(fontSize: 18, color: Colors.white)),
+            ),
           ),
         ],
       ),
@@ -159,6 +171,7 @@ class _NavDestinationScreenState extends State<NavDestinationScreen> {
   /// 新增 / 編輯地點（儲存時自動將地址轉座標）
   void _showPlaceEditor(BuildContext context, AppProvider app,
       {Map<String, dynamic>? place}) {
+    app.speak(place != null ? '編輯地點' : '新增地點');
     Navigator.push(
       context,
       MaterialPageRoute(

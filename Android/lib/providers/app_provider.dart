@@ -17,6 +17,7 @@ import '../services/audio_service.dart';
 import '../services/imu_service.dart';
 import '../services/contacts_service.dart';
 import '../services/places_service.dart';
+import '../services/gps_navigation_service.dart';
 import '../services/emergency_notification_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -633,13 +634,75 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> stopNavigation() async {
     try {
+      // 同時停止 GPS 導航（如果有）
+      GpsNavigationService.instance.stopNavigation();
+      _gpsNavActive = false;
       await _api.navStop();
-      // 立即更新本地狀態，防止使用者在輪詢更新前重複點擊
-      // 伺服器實際設為 CHAT，這裡設 IDLE 效果等同（按鈕立即變回「開始導航」）
       _navState = 'IDLE';
       notifyListeners();
       if (!_isTalkBackOn) _tts.speak('已停止導航');
     } catch (e) { _addMessage('[錯誤] $e'); }
+  }
+
+  // ── GPS 導航（背景 Google Maps + 前景避障）──────────────────────────────
+  bool _gpsNavActive = false;
+  bool get gpsNavActive => _gpsNavActive;
+  double _gpsDistance = double.infinity;
+  double get gpsDistance => _gpsDistance;
+
+  /// 啟動 GPS 導航：開 Google Maps 背景語音 + 前景避障 + GPS 距離監測
+  Future<void> startGpsNavigation(Map<String, dynamic> place) async {
+    final lat = (place['latitude'] as num?)?.toDouble() ?? 0;
+    final lng = (place['longitude'] as num?)?.toDouble() ?? 0;
+    final name = place['name'] as String? ?? '目的地';
+
+    if (lat == 0 && lng == 0) {
+      speak('此地點沒有座標，無法啟動導航。請編輯地點填入地址');
+      return;
+    }
+
+    // 1. 語音提示
+    speak('已選擇$name，啟動導航');
+
+    // 2. 啟動前景避障
+    await startBlindpath();
+
+    // 3. 啟動 GPS 導航（背景 Google Maps + 距離監測）
+    _gpsNavActive = true;
+    _gpsDistance = double.infinity;
+    notifyListeners();
+
+    final success = await GpsNavigationService.instance.startNavigation(
+      latitude: lat,
+      longitude: lng,
+      name: name,
+      onStateChanged: _onGpsStateChanged,
+    );
+
+    if (!success) {
+      speak('GPS 啟動失敗，僅使用避障模式');
+      _gpsNavActive = false;
+      notifyListeners();
+    }
+  }
+
+  /// GPS 狀態變更回呼
+  void _onGpsStateChanged(GpsNavState gpsState, double distance) {
+    _gpsDistance = distance;
+
+    switch (gpsState) {
+      case GpsNavState.arriving:
+        speak('即將到達${GpsNavigationService.instance.destName}，剩餘${distance.toStringAsFixed(0)}公尺');
+        break;
+      case GpsNavState.arrived:
+        speak('已到達${GpsNavigationService.instance.destName}');
+        // 到達後自動結束所有導航
+        Future.delayed(const Duration(seconds: 2), () => stopNavigation());
+        break;
+      default:
+        break;
+    }
+    notifyListeners();
   }
 
   // ── 輪詢導航狀態 ─────────────────────────────────────────────────────────
