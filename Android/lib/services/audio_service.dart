@@ -60,17 +60,34 @@ class AudioService {
     _streamUrl = url;
     _shouldPlayStream = true;
 
+    // 設定音量為最大
+    await _player.setVolume(1.0);
+
     // 取消舊的狀態監聽，重新設置
     await _playerStateSub?.cancel();
     _playerStateSub = _player.onPlayerStateChanged.listen((state) {
+      print('[AudioService] 播放狀態變更: $state');
       // 播放完成或非預期停止時，自動重連伺服器串流
       if (_shouldPlayStream &&
           (state == PlayerState.completed || state == PlayerState.stopped)) {
+        print('[AudioService] 串流中斷，準備重連...');
         _scheduleReconnect();
       }
     });
 
-    await _player.play(UrlSource(url));
+    // 監聽播放器錯誤
+    _player.onLog.listen((msg) {
+      print('[AudioService] 播放器日誌: $msg');
+    });
+
+    print('[AudioService] 連線 /stream.wav: $url');
+    try {
+      await _player.play(UrlSource(url));
+      print('[AudioService] 播放已啟動');
+    } catch (e) {
+      print('[AudioService] 播放失敗: $e');
+      _scheduleReconnect();
+    }
   }
 
   /// 延遲後重新連線 /stream.wav（伺服器可能因重置而切斷連線）
@@ -78,9 +95,12 @@ class AudioService {
     if (!_shouldPlayStream || _streamUrl == null) return;
     Future.delayed(const Duration(milliseconds: 800), () async {
       if (!_shouldPlayStream || _streamUrl == null) return;
+      print('[AudioService] 重連 /stream.wav...');
       try {
         await _player.play(UrlSource(_streamUrl!));
-      } catch (_) {
+        print('[AudioService] 重連成功');
+      } catch (e) {
+        print('[AudioService] 重連失敗: $e');
         // 連線失敗，1 秒後再試
         Future.delayed(const Duration(seconds: 1), _scheduleReconnect);
       }

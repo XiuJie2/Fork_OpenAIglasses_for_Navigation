@@ -16,6 +16,7 @@ import '../services/camera_service.dart';
 import '../services/audio_service.dart';
 import '../services/imu_service.dart';
 import '../services/contacts_service.dart';
+import '../services/places_service.dart';
 import '../services/emergency_notification_service.dart';
 
 class AppProvider extends ChangeNotifier {
@@ -58,6 +59,12 @@ class AppProvider extends ChangeNotifier {
   bool   get ttsEnabled    => _ttsEnabled;
   double get ttsSpeechRate => _ttsSpeechRate;
 
+  // ── 喚醒詞設定 ─────────────────────────────────────────────────────────────
+  // true  → 需要先說「哈囉」才會開始接收語音指令
+  // false → 語音直接送 AI 處理（預設關閉喚醒詞）
+  bool _wakeWordEnabled = false;
+  bool get wakeWordEnabled => _wakeWordEnabled;
+
   // ── 方位播報模式 ───────────────────────────────────────────────────────────
   // "clock"    → 時鐘方向（如：3點鐘方向）
   // "cardinal" → 前後左右（如：左前方）
@@ -77,6 +84,18 @@ class AppProvider extends ChangeNotifier {
     await _tts.setSpeechRate(rate);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble('tts_speech_rate', rate);
+    notifyListeners();
+  }
+
+  Future<void> setWakeWordEnabled(bool v) async {
+    _wakeWordEnabled = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('wake_word_enabled', v);
+    // 重新連線音訊 WebSocket，讓伺服器套用新的喚醒詞模式
+    if (_connected) {
+      _ws.disconnectAudio();
+      _ws.connectAudio(bypassWake: !v);
+    }
     notifyListeners();
   }
 
@@ -131,6 +150,10 @@ class AppProvider extends ChangeNotifier {
   List<Map<String, dynamic>> _contacts = [];
   List<Map<String, dynamic>> get contacts => _contacts;
 
+  // ── 儲存地點（本機 SQLite，GPS 導航用）─────────────────────────────────────
+  List<Map<String, dynamic>> _places = [];
+  List<Map<String, dynamic>> get places => _places;
+
   // ── 初始化 ──────────────────────────────────────────────────────────────
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -141,14 +164,16 @@ class AppProvider extends ChangeNotifier {
     _websiteUrl = prefs.getString(AppConstants.keyWebsiteUrl) ?? '';
     _rebuildServices();
 
-    _ttsEnabled    = prefs.getBool('tts_enabled')        ?? true;
-    _ttsSpeechRate = prefs.getDouble('tts_speech_rate') ?? 0.5;
-    _positionMode  = prefs.getString('position_mode')   ?? 'clock';
+    _ttsEnabled      = prefs.getBool('tts_enabled')        ?? true;
+    _ttsSpeechRate   = prefs.getDouble('tts_speech_rate') ?? 0.5;
+    _positionMode    = prefs.getString('position_mode')   ?? 'clock';
+    _wakeWordEnabled = prefs.getBool('wake_word_enabled') ?? false;
 
     await _tts.setLanguage('zh-TW');
     await _tts.setSpeechRate(_ttsSpeechRate);
 
     await loadContacts();
+    await loadPlaces();
     notifyListeners();
   }
 
@@ -325,7 +350,7 @@ class AppProvider extends ChangeNotifier {
     if (_connected) return;
     _ws.connectUi(onMessage: _onUiMessage);
     _ws.connectCamera();
-    _ws.connectAudio();
+    _ws.connectAudio(bypassWake: !_wakeWordEnabled);
     _ws.connectImu();
 
     await _startCamera();
@@ -387,7 +412,7 @@ class AppProvider extends ChangeNotifier {
       _rebuildServices();
       _ws.connectUi(onMessage: _onUiMessage);
       _ws.connectCamera();
-      _ws.connectAudio();
+      _ws.connectAudio(bypassWake: !_wakeWordEnabled);
       _ws.connectImu();
       // 攝影機和麥克風只在未啟動時重啟
       if (!_camera.isInitialized) await _startCamera();
@@ -490,6 +515,47 @@ class AppProvider extends ChangeNotifier {
     await loadContacts();
   }
 
+  // ── 儲存地點（本機 SQLite）─────────────────────────────────────────────────
+  Future<void> loadPlaces() async {
+    _places = await PlacesService.listPlaces();
+    notifyListeners();
+  }
+
+  Future<void> addPlace({
+    required String name,
+    String address = '',
+    double latitude = 0,
+    double longitude = 0,
+    String category = 'other',
+  }) async {
+    await PlacesService.addPlace(
+      name: name, address: address,
+      latitude: latitude, longitude: longitude,
+      category: category,
+    );
+    await loadPlaces();
+  }
+
+  Future<void> updatePlace(int id, {
+    required String name,
+    String address = '',
+    double latitude = 0,
+    double longitude = 0,
+    String category = 'other',
+  }) async {
+    await PlacesService.updatePlace(id,
+      name: name, address: address,
+      latitude: latitude, longitude: longitude,
+      category: category,
+    );
+    await loadPlaces();
+  }
+
+  Future<void> deletePlace(int id) async {
+    await PlacesService.deletePlace(id);
+    await loadPlaces();
+  }
+
   // ── 緊急連絡人語音偵測 ────────────────────────────────────────────────────
   void _checkEmergencyCall(String msg) {
     // 伺服器廣播的 ASR 原始文字格式為 "FINAL:使用者說的話"
@@ -531,7 +597,7 @@ class AppProvider extends ChangeNotifier {
       // 立即更新本地狀態，避免使用者重複點擊造成競爭條件
       _navState = 'BLINDPATH_NAV';
       notifyListeners();
-      if (!_isTalkBackOn) _tts.speak('開始盲道導航');
+      if (!_isTalkBackOn) _tts.speak('開始避障導航');
     } catch (e) { _addMessage('[錯誤] $e'); }
   }
 

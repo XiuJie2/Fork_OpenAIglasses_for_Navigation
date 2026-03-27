@@ -98,7 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // ── 導航動作 ────────────────────────────────────────────────────────────
+  // ── 導航動作（呼叫伺服器 API 並開啟 AR 畫面）─────────────────────────
   Future<void> _startAndShowAr(
       Future<void> Function() startFn, String title) async {
     HapticFeedback.heavyImpact();
@@ -302,49 +302,59 @@ class _MainPage extends StatelessWidget {
         // ── 過馬路 ───────────────────────────────────────────────────
         Expanded(
           flex: 18,
-          child: _NavBlock(
-            label:    '過馬路',
-            sublabel: ['CROSSING', 'SEEKING_CROSSWALK',
-                'WAIT_TRAFFIC_LIGHT', 'SEEKING_NEXT_BLINDPATH']
-                .contains(nav)
-                ? '執行中'
-                : ok ? '偵測斑馬線與紅綠燈' : '未連線',
-            icon:     Icons.directions_walk,
-            color: !ok
-                ? const Color(0xFF1B1B1B)
-                : ['CROSSING', 'SEEKING_CROSSWALK',
-                    'WAIT_TRAFFIC_LIGHT', 'SEEKING_NEXT_BLINDPATH']
-                    .contains(nav)
-                    ? const Color(0xFFB71C1C)
-                    : const Color(0xFF1B5E20),
-            isActive: ['CROSSING', 'SEEKING_CROSSWALK',
-                'WAIT_TRAFFIC_LIGHT', 'SEEKING_NEXT_BLINDPATH']
-                .contains(nav),
-            onTap: ok
-                ? () => onStartAr(app.startCrossing, '過馬路')
-                : null,
-          ),
+          child: Builder(builder: (_) {
+            final crossingStates = ['CROSSING', 'SEEKING_CROSSWALK',
+                'WAIT_TRAFFIC_LIGHT', 'SEEKING_NEXT_BLINDPATH'];
+            final isCrossing = crossingStates.contains(nav);
+            return _NavBlock(
+              label:    '過馬路',
+              sublabel: isCrossing
+                  ? '執行中 — 點擊停止'
+                  : ok ? '偵測斑馬線與紅綠燈' : '未連線',
+              icon:     isCrossing
+                  ? Icons.stop_circle_outlined
+                  : Icons.directions_walk,
+              color: !ok
+                  ? const Color(0xFF1B1B1B)
+                  : isCrossing
+                      ? const Color(0xFFB71C1C)
+                      : const Color(0xFF1B5E20),
+              isActive: isCrossing,
+              onTap: ok
+                  ? () => isCrossing
+                      ? app.stopNavigation()
+                      : onStartAr(app.startCrossing, '過馬路')
+                  : null,
+            );
+          }),
         ),
 
         // ── 紅綠燈偵測 ──────────────────────────────────────────────
         Expanded(
           flex: 15,
-          child: _NavBlock(
-            label:    '紅綠燈偵測',
-            sublabel: nav == 'TRAFFIC_LIGHT_DETECTION'
-                ? '偵測中'
-                : ok ? '語音告知燈號' : '未連線',
-            icon:     Icons.traffic,
-            color: !ok
-                ? const Color(0xFF1B1B1B)
-                : nav == 'TRAFFIC_LIGHT_DETECTION'
-                    ? const Color(0xFFB71C1C)
-                    : const Color(0xFFE65100),
-            isActive: nav == 'TRAFFIC_LIGHT_DETECTION',
-            onTap: ok
-                ? () => onStartAr(app.startTrafficLight, '紅綠燈偵測')
-                : null,
-          ),
+          child: Builder(builder: (_) {
+            final isDetecting = nav == 'TRAFFIC_LIGHT_DETECTION';
+            return _NavBlock(
+              label:    '紅綠燈偵測',
+              sublabel: isDetecting
+                  ? '偵測中 — 點擊停止'
+                  : ok ? '語音告知燈號' : '未連線',
+              icon:     isDetecting
+                  ? Icons.stop_circle_outlined
+                  : Icons.traffic,
+              color: !ok
+                  ? const Color(0xFF1B1B1B)
+                  : isDetecting
+                      ? const Color(0xFFB71C1C)
+                      : const Color(0xFFE65100),
+              isActive: isDetecting,
+              onTap: ok
+                  ? () => isDetecting
+                      ? app.stopNavigation()
+                      : onStartAr(app.startTrafficLight, '紅綠燈偵測')
+                  : null,
+            );
+          }),
         ),
 
         // ── 找物品 / 停止（橫排各佔一半）──────────────────────────
@@ -514,25 +524,6 @@ class _SettingsPage extends StatelessWidget {
 
                 const SizedBox(height: 3),
 
-                // ── AR 畫面（目前導航模式）────────────────────────────
-                _SettingBlock(
-                  icon:     Icons.visibility,
-                  label:    'AR 偵測畫面',
-                  sublabel: app.connected
-                      ? '查看 YOLO 即時影像串流'
-                      : '需要先連線伺服器',
-                  color:    app.connected
-                      ? const Color(0xFF1B3A1B)
-                      : const Color(0xFF1B1B1B),
-                  onTap:    app.connected
-                      ? () => Navigator.push(context,
-                          MaterialPageRoute(
-                              builder: (_) => const ArScreen(title: 'AR 畫面')))
-                      : null,
-                ),
-
-                const SizedBox(height: 3),
-
                 // ── 音訊測試 ──────────────────────────────────────────
                 _SettingBlock(
                   icon:     Icons.headphones,
@@ -542,6 +533,22 @@ class _SettingsPage extends StatelessWidget {
                       : 'TTS 語音 / 串流播放 / 麥克風未啟動',
                   color:    const Color(0xFF1A2744),
                   onTap:    () => showAudioTestSheet(context, app),
+                ),
+
+                const SizedBox(height: 3),
+
+                // ── 喚醒詞開關 ──────────────────────────────────────
+                _SettingToggle(
+                  icon:     Icons.record_voice_over,
+                  label:    '喚醒詞「哈囉」',
+                  sublabel: app.wakeWordEnabled
+                      ? '已啟用：需先說「哈囉」才接收指令'
+                      : '已關閉：語音直接送 AI 處理',
+                  color:    app.wakeWordEnabled
+                      ? const Color(0xFF1B5E20)
+                      : const Color(0xFF37474F),
+                  value:    app.wakeWordEnabled,
+                  onChanged: (v) => app.setWakeWordEnabled(v),
                 ),
 
                 const SizedBox(height: 3),
@@ -742,209 +749,417 @@ class _AudioTestSheetState extends State<_AudioTestSheet> {
 
   bool _playingServer = false;
 
+  // 監聽 AppProvider 訊息變化，即時更新 ASR 顯示
+  int _lastMsgCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastMsgCount = widget.app.messageCount;
+    widget.app.addListener(_onAppChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.app.removeListener(_onAppChanged);
+    super.dispose();
+  }
+
+  void _onAppChanged() {
+    if (!mounted) return;
+    if (widget.app.messageCount != _lastMsgCount) {
+      _lastMsgCount = widget.app.messageCount;
+      setState(() {});
+    }
+  }
+
+  /// 從 app.messages 取出最近的 ASR 相關訊息（最多 8 筆）
+  List<String> _recentAsrMessages() {
+    final msgs = widget.app.messages;
+    final filtered = <String>[];
+    // 從後往前取，最多 8 筆
+    for (int i = msgs.length - 1; i >= 0 && filtered.length < 8; i--) {
+      final m = msgs[i];
+      // 顯示 PARTIAL / FINAL / ASR / 系統 相關訊息
+      if (m.startsWith('PARTIAL:') ||
+          m.startsWith('FINAL:') ||
+          m.contains('[ASR]') ||
+          m.contains('[系統]') ||
+          m.contains('[系统]') ||
+          m.contains('[錯誤]') ||
+          m.contains('[AI]') ||
+          m.startsWith('INIT:')) {
+        filtered.add(m);
+      }
+    }
+    return filtered.reversed.toList(); // 時間順序
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
+    final asrMsgs = _recentAsrMessages();
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-
-              // 拖曳把手
-              Center(
-                child: Container(
-                  width: 40, height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // 標題 + 麥克風狀態
-              Row(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Text('音訊測試',
-                      style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white)),
-                  const Spacer(),
+
+                  // 拖曳把手
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 標題 + 麥克風狀態
+                  Row(
+                    children: [
+                      const Text('音訊測試',
+                          style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white)),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: app.isRecordingMic
+                              ? Colors.green.withAlpha(40)
+                              : Colors.grey.withAlpha(30),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.mic,
+                                size: 14,
+                                color: app.isRecordingMic
+                                    ? Colors.greenAccent
+                                    : Colors.white38),
+                            const SizedBox(width: 5),
+                            Text(
+                              app.isRecordingMic ? '麥克風錄音中' : '麥克風未啟動',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: app.isRecordingMic
+                                    ? Colors.greenAccent
+                                    : Colors.white38,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // ── 伺服器連線狀態列 ─────────────────────────────────────
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                        vertical: 10, horizontal: 14),
                     decoration: BoxDecoration(
-                      color: app.isRecordingMic
-                          ? Colors.green.withAlpha(40)
-                          : Colors.grey.withAlpha(30),
-                      borderRadius: BorderRadius.circular(8),
+                      color: app.connected
+                          ? const Color(0xFF0D2818)
+                          : const Color(0xFF2A1010),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: app.connected
+                            ? Colors.green.withAlpha(60)
+                            : Colors.red.withAlpha(60),
+                      ),
                     ),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.mic,
-                            size: 14,
-                            color: app.isRecordingMic
-                                ? Colors.greenAccent
-                                : Colors.white38),
-                        const SizedBox(width: 5),
+                        Icon(
+                          app.connected ? Icons.cloud_done : Icons.cloud_off,
+                          size: 18,
+                          color: app.connected
+                              ? Colors.greenAccent
+                              : Colors.redAccent,
+                        ),
+                        const SizedBox(width: 10),
                         Text(
-                          app.isRecordingMic ? '麥克風錄音中' : '麥克風未啟動',
+                          app.connected
+                              ? '伺服器已連線 — 音訊上行中'
+                              : '伺服器未連線 — 音訊無法送達',
                           style: TextStyle(
-                            fontSize: 12,
-                            color: app.isRecordingMic
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: app.connected
                                 ? Colors.greenAccent
-                                : Colors.white38,
+                                : Colors.redAccent,
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 20),
+                  const SizedBox(height: 16),
 
-              // ── APP 語音開關 ───────────────────────────────────────────
-              _AudioRow(
-                label: 'APP 語音播報',
-                sublabel: app.ttsEnabled ? '已開啟' : '已關閉',
-                trailing: Switch(
-                  value:            app.ttsEnabled,
-                  activeThumbColor: Colors.blueAccent,
-                  onChanged: (v) {
-                    app.setTtsEnabled(v);
-                    setState(() {});
-                  },
-                ),
-              ),
-              const Divider(color: Colors.white12, height: 1),
+                  // ── ASR 即時辨識結果 ─────────────────────────────────────
+                  const Text('ASR 即時辨識',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.white54,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(
+                        minHeight: 80, maxHeight: 160),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0D1117),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: Colors.white.withAlpha(15)),
+                    ),
+                    child: asrMsgs.isEmpty
+                        ? Center(
+                            child: Text(
+                              app.connected
+                                  ? '等待語音輸入…\n對著麥克風說話即可看到辨識結果'
+                                  : '伺服器未連線',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.white24,
+                                  height: 1.6),
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: asrMsgs.length,
+                            padding: EdgeInsets.zero,
+                            itemBuilder: (_, i) {
+                              final m = asrMsgs[i];
+                              final isPartial =
+                                  m.startsWith('PARTIAL:');
+                              final isFinal =
+                                  m.startsWith('FINAL:');
+                              final display = isPartial
+                                  ? m.substring(8)
+                                  : isFinal
+                                      ? m.substring(6)
+                                      : m;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 2),
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      margin:
+                                          const EdgeInsets.only(
+                                              top: 4, right: 6),
+                                      padding:
+                                          const EdgeInsets
+                                              .symmetric(
+                                              horizontal: 5,
+                                              vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: isFinal
+                                            ? Colors.blue
+                                                .withAlpha(40)
+                                            : isPartial
+                                                ? Colors.amber
+                                                    .withAlpha(30)
+                                                : Colors.grey
+                                                    .withAlpha(25),
+                                        borderRadius:
+                                            BorderRadius.circular(
+                                                4),
+                                      ),
+                                      child: Text(
+                                        isFinal
+                                            ? 'F'
+                                            : isPartial
+                                                ? 'P'
+                                                : 'S',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight:
+                                              FontWeight.bold,
+                                          color: isFinal
+                                              ? Colors.blueAccent
+                                              : isPartial
+                                                  ? Colors.amber
+                                                  : Colors.white38,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        display,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: isFinal
+                                              ? Colors.white
+                                              : Colors.white54,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  const SizedBox(height: 16),
 
-              // ── 語音速度 ───────────────────────────────────────────────
-              _AudioRow(
-                label:    '語音速度',
-                sublabel: _rateLabel(app.ttsSpeechRate),
-                trailing: TextButton(
-                  onPressed: () {
-                    app.setTtsSpeechRate(_nextRate(app.ttsSpeechRate));
-                    setState(() {});
-                  },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  // ── APP 語音開關 ───────────────────────────────────────────
+                  _AudioRow(
+                    label: 'APP 語音播報',
+                    sublabel: app.ttsEnabled ? '已開啟' : '已關閉',
+                    trailing: Switch(
+                      value:            app.ttsEnabled,
+                      activeThumbColor: Colors.blueAccent,
+                      onChanged: (v) {
+                        app.setTtsEnabled(v);
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  const Divider(color: Colors.white12, height: 1),
+
+                  // ── 語音速度 ───────────────────────────────────────────────
+                  _AudioRow(
+                    label:    '語音速度',
+                    sublabel: _rateLabel(app.ttsSpeechRate),
+                    trailing: TextButton(
+                      onPressed: () {
+                        app.setTtsSpeechRate(_nextRate(app.ttsSpeechRate));
+                        setState(() {});
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_rateLabel(app.ttsSpeechRate),
+                              style: const TextStyle(
+                                  fontSize: 15, color: Colors.blueAccent)),
+                          const Icon(Icons.swap_horiz,
+                              color: Colors.blueAccent, size: 18),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const Divider(color: Colors.white12, height: 1),
+                  const SizedBox(height: 16),
+
+                  // ── TTS 語音測試輸入 ───────────────────────────────────────
+                  const Text('TTS 語音測試',
+                      style: TextStyle(fontSize: 13, color: Colors.white54)),
+                  const SizedBox(height: 8),
+                  Row(
                     children: [
-                      Text(_rateLabel(app.ttsSpeechRate),
-                          style: const TextStyle(
-                              fontSize: 15, color: Colors.blueAccent)),
-                      const Icon(Icons.swap_horiz,
-                          color: Colors.blueAccent, size: 18),
+                      Expanded(
+                        child: TextField(
+                          controller: widget.ctrl,
+                          style:      const TextStyle(
+                              color: Colors.white, fontSize: 16),
+                          decoration: InputDecoration(
+                            hintText:  '輸入要朗讀的文字…',
+                            hintStyle: const TextStyle(color: Colors.white24),
+                            filled:    true,
+                            fillColor: const Color(0xFF2A2A2A),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: () {
+                          final text = widget.ctrl.text.trim();
+                          if (text.isNotEmpty) app.speak(text);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF1565C0),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: const Icon(Icons.play_arrow, color: Colors.white),
+                      ),
                     ],
                   ),
-                ),
-              ),
-              const Divider(color: Colors.white12, height: 1),
-              const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-              // ── TTS 語音測試輸入 ───────────────────────────────────────
-              const Text('TTS 語音測試',
-                  style: TextStyle(fontSize: 13, color: Colors.white54)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: widget.ctrl,
-                      style:      const TextStyle(
-                          color: Colors.white, fontSize: 16),
-                      decoration: InputDecoration(
-                        hintText:  '輸入要朗讀的文字…',
-                        hintStyle: const TextStyle(color: Colors.white24),
-                        filled:    true,
-                        fillColor: const Color(0xFF2A2A2A),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 12),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: () {
-                      final text = widget.ctrl.text.trim();
-                      if (text.isNotEmpty) app.speak(text);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1565C0),
+                  // ── 伺服器音訊串流測試 ─────────────────────────────────────
+                  GestureDetector(
+                    onTap: !_playingServer
+                        ? () async {
+                            setState(() => _playingServer = true);
+                            await app.playServerAudioTest();
+                            if (mounted) setState(() => _playingServer = false);
+                          }
+                        : null,
+                    child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                    ),
-                    child: const Icon(Icons.play_arrow, color: Colors.white),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // ── 伺服器音訊串流測試 ─────────────────────────────────────
-              GestureDetector(
-                onTap: !_playingServer
-                    ? () async {
-                        setState(() => _playingServer = true);
-                        await app.playServerAudioTest();
-                        if (mounted) setState(() => _playingServer = false);
-                      }
-                    : null,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 16, horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: _playingServer
-                        ? const Color(0xFF004D40)
-                        : const Color(0xFF1B3A2A),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _playingServer
-                            ? Icons.volume_up
-                            : Icons.play_circle_outline,
-                        color: Colors.greenAccent,
-                        size: 28,
+                          vertical: 16, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: _playingServer
+                            ? const Color(0xFF004D40)
+                            : const Color(0xFF1B3A2A),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          const Text('播放伺服器音訊串流',
-                              style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white)),
-                          Text(
+                          Icon(
                             _playingServer
-                                ? '正在播放 /stream.wav…'
-                                : '測試 /stream.wav 下行串流',
-                            style: const TextStyle(
-                                fontSize: 12, color: Colors.white54),
+                                ? Icons.volume_up
+                                : Icons.play_circle_outline,
+                            color: Colors.greenAccent,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 12),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('播放伺服器音訊串流',
+                                  style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white)),
+                              Text(
+                                _playingServer
+                                    ? '正在播放 /stream.wav…'
+                                    : '測試 /stream.wav 下行串流',
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.white54),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1054,6 +1269,63 @@ class _SettingBlock extends StatelessWidget {
                 size: 24),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// 設定開關色塊（帶 Switch）
+class _SettingToggle extends StatelessWidget {
+  final IconData icon;
+  final String   label;
+  final String   sublabel;
+  final Color    color;
+  final bool     value;
+  final ValueChanged<bool> onChanged;
+
+  const _SettingToggle({
+    required this.icon,
+    required this.label,
+    required this.sublabel,
+    required this.color,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color:       color,
+      constraints: const BoxConstraints(minHeight: 90),
+      padding:     const EdgeInsets.symmetric(vertical: 22, horizontal: 24),
+      child: Row(
+        children: [
+          Icon(icon, size: 36, color: Colors.white70),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white)),
+                const SizedBox(height: 4),
+                Text(sublabel,
+                    style: const TextStyle(fontSize: 14, color: Colors.white54),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: Colors.greenAccent,
+          ),
+        ],
       ),
     );
   }

@@ -12,6 +12,7 @@ import 'screens/blind_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/read_screen.dart';
+import 'screens/nav_destination_screen.dart';
 
 class AiGlassesApp extends StatelessWidget {
   const AiGlassesApp({super.key});
@@ -34,6 +35,7 @@ class AiGlassesApp extends StatelessWidget {
           '/home':        (_) => const HomeScreen(),
           '/settings':    (_) => const SettingsScreen(),
           '/read':        (_) => const ReadScreen(),
+          '/nav_dest':    (_) => const NavDestinationScreen(),
         },
       ),
     );

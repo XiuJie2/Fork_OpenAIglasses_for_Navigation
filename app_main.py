@@ -59,6 +59,7 @@ from asr_core import (
     set_current_recognition,
     stop_current_recognition,
     STANDBY_RMS_THRESH,
+    preload_speech_client,
 )
 from audio_player import initialize_audio_system, play_voice_text, play_audio_threadsafe
 
@@ -122,6 +123,7 @@ _last_rms_push_ts:   float = 0.0  # 限制 RMS 推送頻率（每 0.15 秒一次
 _debug_rec_active: bool      = False   # 是否正在錄音
 _debug_rec_buffer: bytearray = bytearray()  # 收音緩衝
 _DEBUG_REC_DIR:    str       = r"D:\GitHub_Project\Fork_OpenAIglasses_for_Navigation\錄音測試"
+_server_start_time: float    = time.time()   # 伺服器啟動時間戳（Debug 面板用）
 
 # 【新增】盲道导航相关全局变量
 blind_path_navigator = None
@@ -339,7 +341,7 @@ async def ui_broadcast_final(text: str):
 async def full_system_reset(reason: str = ""):
     """
     回到刚启动后的状态：
-    1) 停播 + 取消AI任务 + 切断所有/stream.wav（hard_reset_audio）
+    1) 停播 + 取消AI任务 + 清空串流佇列（hard_reset_audio）
     2) 停止 ASR 实时识别流（关键）
     3) 清 UI 状态
     4) 清最近相机帧（避免把旧帧又拼进下一轮）
@@ -452,9 +454,9 @@ async def start_ai_with_text_custom(user_text: str):
             is_allowed_query = any(keyword in user_text for keyword in allowed_keywords)
             
             # 检查是否是导航控制命令
-            nav_control_keywords = ["开始过马路", "过马路结束", "开始导航", "盲道导航", "停止导航", "结束导航",
+            nav_control_keywords = ["开始过马路", "过马路结束", "开始导航", "开启导航", "盲道导航", "停止导航", "结束导航",
                                    "检测红绿灯", "看红绿灯", "停止检测", "停止红绿灯",
-                                   "開始過馬路", "過馬路結束", "開始導航", "停止導航", "結束導航",
+                                   "開始過馬路", "過馬路結束", "開始導航", "開啟導航", "停止導航", "結束導航",
                                    "檢測紅綠燈", "看紅綠燈", "停止檢測", "停止紅綠燈"]
             is_nav_control = any(keyword in user_text for keyword in nav_control_keywords)
             
@@ -539,8 +541,8 @@ async def start_ai_with_text_custom(user_text: str):
         return
     
     # 【修改】检查是否是导航相关命令 - 使用orchestrator控制
-    if "开始导航" in user_text or "盲道导航" in user_text or "帮我导航" in user_text or \
-       "開始導航" in user_text or "幫我導航" in user_text:
+    if "开始导航" in user_text or "开启导航" in user_text or "盲道导航" in user_text or "帮我导航" in user_text or \
+       "開始導航" in user_text or "開啟導航" in user_text or "幫我導航" in user_text or "忙導航" in user_text:
         # 【新增】如果正在找物品，先停止
         if yolomedia_running:
             stop_yolomedia()
@@ -569,8 +571,8 @@ async def start_ai_with_text_custom(user_text: str):
         # else: orchestrator 未初始化，導航本就未運行，靜默返回（不廣播雜訊）
         return
 
-    nav_cmd_keywords = ["开始过马路", "过马路结束", "开始导航", "盲道导航", "停止导航", "结束导航", "立即通过", "现在通过", "继续",
-                       "開始過馬路", "過馬路結束", "開始導航", "停止導航", "結束導航", "立即通過", "現在通過"]
+    nav_cmd_keywords = ["开始过马路", "过马路结束", "开始导航", "开启导航", "盲道导航", "停止导航", "结束导航", "立即通过", "现在通过", "继续",
+                       "開始過馬路", "過馬路結束", "開始導航", "開啟導航", "忙導航", "停止導航", "結束導航", "立即通過", "現在通過"]
     if any(k in user_text for k in nav_cmd_keywords):
         if orchestrator:
             orchestrator.on_voice_command(user_text)
@@ -755,14 +757,7 @@ async def start_ai_with_text(user_text: str):
             else:
                 print(f"[OMNI] 对话结束（无需恢复导航状态）")
             
-            # 自然结束时，给当前连接一个 "完结" 信号
-            from audio_stream import stream_clients  # 局部导入，避免环依赖
-            for sc in list(stream_clients):
-                if not sc.abort_event.is_set():
-                    try: sc.q.put_nowait(b"\x00"*BYTES_PER_20MS_16K)  # 一帧静音
-                    except Exception: pass
-                    try: sc.q.put_nowait(None)
-                    except Exception: pass
+            # 不斷開串流連線，讓 APP 保持長連線，避免重連延遲丟失音訊
 
             final_text = ("".join(txt_buf)).strip() or "（空响应）"
             try:
@@ -1030,6 +1025,57 @@ async def debug_record_stop():
     print(f"[DEBUG_REC] 已儲存 {filepath}（{duration:.1f} 秒）", flush=True)
     return {"status": "saved", "file": filepath, "duration_sec": round(duration, 1)}
 
+# ── Debug 狀態面板 API ──────────────────────────────────────────────────────
+@app.get("/api/debug_status")
+def api_debug_status():
+    """回傳伺服器全域狀態，供管理介面 Debug 面板輪詢使用"""
+    # 安全讀取 WebSocket 連線狀態（避免競態條件）
+    _cam = esp32_camera_ws
+    _aud = esp32_audio_ws
+    try:
+        cam_ok = _cam is not None and _cam.client_state == WebSocketState.CONNECTED
+    except Exception:
+        cam_ok = False
+    try:
+        aud_ok = _aud is not None and _aud.client_state == WebSocketState.CONNECTED
+    except Exception:
+        aud_ok = False
+
+    # 計算運行時間
+    uptime_sec = int(time.time() - _server_start_time)
+    h, rem = divmod(uptime_sec, 3600)
+    m, s = divmod(rem, 60)
+
+    return {
+        # ── 連線狀態 ──
+        "esp32_camera_connected": cam_ok,
+        "esp32_audio_connected":  aud_ok,
+        "ui_client_count":        len(ui_clients),
+        "camera_viewer_count":    len(camera_viewers),
+        "imu_ws_client_count":    len(imu_ws_clients),
+        # ── 導航狀態 ──
+        "orchestrator_state":     orchestrator.get_state() if orchestrator else "未初始化",
+        "navigation_active":      navigation_active,
+        "cross_street_active":    cross_street_active,
+        # ── 模型狀態 ──
+        "yolo_seg_loaded":          yolo_seg_model is not None,
+        "obstacle_detector_loaded": obstacle_detector is not None,
+        "gpu_available":            torch.cuda.is_available(),
+        "gpu_name":                 torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A",
+        # ── ASR 狀態 ──
+        "current_partial_len":  len(current_partial),
+        "recent_finals_count":  len(recent_finals),
+        "last_final":           recent_finals[-1][:60] if recent_finals else "",
+        # ── 音訊狀態 ──
+        "debug_rec_active":     _debug_rec_active,
+        "debug_rec_bytes":      len(_debug_rec_buffer),
+        "enroll_active":        _enroll_active,
+        "verify_continuous":    _verify_continuous,
+        "sample_rate":          SAMPLE_RATE,
+        # ── 系統資訊 ──
+        "uptime":               f"{h:02d}:{m:02d}:{s:02d}",
+    }
+
 # 注册 /stream.wav
 register_stream_route(app)
 
@@ -1049,9 +1095,12 @@ async def ws_ui(ws: WebSocket):
         ui_clients.pop(id(ws), None)
 
 # ---------- WebSocket：ESP32 音频入口（ASR 上行） ----------
+# APP 連線時會送 START:BYPASS，此旗標用於跳過硬體專用的歡迎音效
+_audio_bypass_mode = False
+
 @app.websocket("/ws_audio")
 async def ws_audio(ws: WebSocket):
-    global esp32_audio_ws
+    global esp32_audio_ws, _audio_bypass_mode
     esp32_audio_ws = ws
     await ws.accept()
     print("\n[AUDIO] client connected")
@@ -1102,8 +1151,11 @@ async def ws_audio(ws: WebSocket):
                 raw = (msg["text"] or "").strip()
                 cmd = raw.upper()
 
-                if cmd == "START":
-                    print("[AUDIO] START received")
+                if cmd == "START" or cmd == "START:BYPASS":
+                    bypass = cmd == "START:BYPASS"
+                    _audio_bypass_mode = bypass
+                    mode_label = "BYPASS（APP 模式，跳過喚醒詞）" if bypass else "正常"
+                    print(f"[AUDIO] {cmd} received — 模式: {mode_label}")
                     await stop_rec()
                     loop = asyncio.get_running_loop()
                     def post(coro):
@@ -1119,7 +1171,7 @@ async def ws_audio(ws: WebSocket):
                         start_ai_with_text_fn=start_ai_with_text_custom,
                         full_system_reset_fn=full_system_reset,
                         interrupt_lock=interrupt_lock,
-                        # 喚醒詞「哈囉 曼波」→ 播放開始對話音效
+                        # 喚醒詞「哈囉」→ 播放開始對話音效
                         on_wake_fn=lambda: play_audio_threadsafe("開始對話"),
                         # 結束詞「謝謝 曼波」→ 播放結束對話音效
                         on_end_fn=lambda: play_audio_threadsafe("結束對話"),
@@ -1132,6 +1184,7 @@ async def ws_audio(ws: WebSocket):
                         credentials_path=GOOGLE_CREDENTIALS_PATH,
                         sample_rate=SAMPLE_RATE,
                         callback=cb,
+                        bypass_wake=bypass,
                     )
                     recognition.start()
                     await set_current_recognition(recognition)
@@ -1139,7 +1192,6 @@ async def ws_audio(ws: WebSocket):
                     last_ts = time.monotonic()
                     await ui_broadcast_partial("（已開始接收音訊…）")
                     await ws.send_text("OK:STARTED")
-                    play_voice_text("切换到盲道导航。")
 
                 elif cmd == "STOP":
                     await stop_rec(send_notice="OK:STOPPED")
@@ -1316,10 +1368,13 @@ async def ws_camera_esp(ws: WebSocket):
     except Exception:
         pass
 
-    # 硬體連線成功後播放歡迎音效（每次重連都播，延遲 4 秒等待 ESP32 音訊串流就緒）
+    # 硬體連線成功後播放歡迎音效（APP 模式跳過，歡迎語音僅供 ESP32 眼鏡使用）
     def _play_welcome():
         import time as _time
         _time.sleep(6.0)  # 等待 ESP32 音訊串流穩定就緒
+        if _audio_bypass_mode:
+            print("[WELCOME] APP 模式，跳過歡迎音效", flush=True)
+            return
         from audio_player import play_audio_threadsafe
         play_audio_threadsafe("歡迎使用AI智慧眼鏡")
     threading.Thread(target=_play_welcome, daemon=True).start()
@@ -1784,15 +1839,18 @@ async def on_startup_register_bridge_sender():
 
 @app.on_event("startup")
 async def on_startup_init_audio():
-    """启动时初始化音频系统"""
+    """启动时初始化音频系统 + 預載 Google SpeechClient"""
     # 在后台线程中初始化，避免阻塞启动
     def _init():
         try:
             initialize_audio_system()
         except Exception as e:
             print(f"[AUDIO] 初始化失败: {e}")
-    
+
     threading.Thread(target=_init, daemon=True).start()
+
+    # 背景預載 Google SpeechClient（gRPC 連線較慢，提前建立可縮短首次語音辨識等待時間）
+    preload_speech_client(GOOGLE_CREDENTIALS_PATH)
 
 @app.on_event("startup")
 async def on_startup():
@@ -2001,12 +2059,41 @@ class ExplainDocumentRequest(BaseModel):
     question: str    # 使用者問題（首次說明 / 追問）
 
 
+def _compress_image_b64(image_b64: str, max_width: int = 1280, quality: int = 80) -> str:
+    """壓縮 base64 圖片：縮小到 max_width 並以 JPEG 重新編碼，大幅減少 API 傳輸量。"""
+    import base64, io
+    try:
+        raw = base64.b64decode(image_b64)
+        img_array = np.frombuffer(raw, np.uint8)
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        if img is None:
+            return image_b64  # 解碼失敗，回傳原圖
+
+        h, w = img.shape[:2]
+        if w > max_width:
+            scale = max_width / w
+            img = cv2.resize(img, (max_width, int(h * scale)), interpolation=cv2.INTER_AREA)
+
+        _, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        compressed = base64.b64encode(buf.tobytes()).decode()
+        original_kb = len(image_b64) * 3 / 4 / 1024
+        new_kb = len(compressed) * 3 / 4 / 1024
+        print(f"[DOC-READ] 圖片壓縮: {original_kb:.0f}KB → {new_kb:.0f}KB ({w}x{h} → {img.shape[1]}x{img.shape[0]})", flush=True)
+        return compressed
+    except Exception as e:
+        print(f"[DOC-READ] 圖片壓縮失敗: {e}，使用原圖", flush=True)
+        return image_b64
+
+
 @app.post("/api/read_document")
 async def api_read_document(req: ReadDocumentRequest):
     """
     使用 Gemini Vision 完整擷取圖片中的所有文字。
     回傳 { text, char_count }
     """
+    # 壓縮圖片以加速 API 傳輸（OCR 不需要超高解析度）
+    compressed_b64 = _compress_image_b64(req.image_b64, max_width=1280, quality=80)
+
     system = (
         "你是一位專業的文件辨識助理，協助視障者閱讀紙本文件。"
         "請完整、逐字擷取圖片中的所有文字，保留段落與換行結構，"
@@ -2015,7 +2102,7 @@ async def api_read_document(req: ReadDocumentRequest):
     )
     content_list = [
         {"type": "image_url",
-         "image_url": {"url": f"data:image/jpeg;base64,{req.image_b64}"}},
+         "image_url": {"url": f"data:image/jpeg;base64,{compressed_b64}"}},
         {"type": "text",
          "text": "請完整擷取此圖片中的所有文字，保留原有排版與段落。"},
     ]

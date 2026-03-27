@@ -157,8 +157,8 @@ class _DebugFloatingPanelState extends State<DebugFloatingPanel>
   }
 }
 
-// ── 面板內容 ──────────────────────────────────────────────────────────────────
-class _PanelContent extends StatelessWidget {
+// ── 面板內容（StatefulWidget：支援定時輪詢伺服器 Debug 狀態）────────────────
+class _PanelContent extends StatefulWidget {
   final AppProvider    app;
   final ScrollController scrollCtrl;
   final VoidCallback   onClose;
@@ -170,10 +170,57 @@ class _PanelContent extends StatelessWidget {
   });
 
   @override
+  State<_PanelContent> createState() => _PanelContentState();
+}
+
+class _PanelContentState extends State<_PanelContent> {
+  Map<String, dynamic>? _serverDebug;
+  String? _fetchError;
+  bool _fetching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDebugStatus();
+    // 每 3 秒輪詢一次伺服器 debug 狀態
+    _startPolling();
+  }
+
+  // 定時輪詢（面板展開時才會存在，收起時 State 被銷毀 → 自動停止）
+  void _startPolling() {
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 3));
+      if (!mounted) return false;
+      await _fetchDebugStatus();
+      return mounted;
+    });
+  }
+
+  Future<void> _fetchDebugStatus() async {
+    if (_fetching || !mounted) return;
+    // 未連線時不嘗試拉取，避免不必要的錯誤
+    if (!widget.app.connected) {
+      if (mounted) setState(() { _fetchError = '尚未連線伺服器'; _serverDebug = null; });
+      return;
+    }
+    _fetching = true;
+    try {
+      final data = await widget.app.api.debugStatus();
+      if (mounted) setState(() { _serverDebug = data; _fetchError = null; });
+    } catch (e) {
+      if (mounted) setState(() { _fetchError = e.toString(); });
+    } finally {
+      _fetching = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final app = widget.app;
     final serverUrl = app.baseUrl.isNotEmpty
         ? app.baseUrl
         : '${app.host}:${app.port}';
+    final d = _serverDebug;
 
     return Container(
       color: Colors.black.withAlpha(245),
@@ -204,7 +251,7 @@ class _PanelContent extends StatelessWidget {
                           fontSize: 10, color: Colors.black54)),
                   const SizedBox(width: 8),
                   GestureDetector(
-                    onTap: onClose,
+                    onTap: widget.onClose,
                     child: const Icon(Icons.close,
                         size: 20, color: Colors.black87),
                   ),
@@ -212,61 +259,139 @@ class _PanelContent extends StatelessWidget {
               ),
             ),
 
-            // ── 系統狀態 ───────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
-              child: Column(
+            // ── 面板可捲動區域 ───────────────────────────────────────
+            Expanded(
+              child: ListView(
+                controller: widget.scrollCtrl,
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                 children: [
+
+                  // ── APP 本機狀態 ─────────────────────────────────
+                  _SectionTitle('APP 本機狀態'),
                   _Row('伺服器',   serverUrl,
                       color: app.connected
                           ? Colors.greenAccent : Colors.redAccent),
-                  _Row('連線',     app.connected ? '已連線 ✓' : '未連線 ✗',
+                  _Row('連線',     app.connected ? '已連線' : '未連線',
                       color: app.connected
                           ? Colors.greenAccent : Colors.redAccent),
-                  _Row('導航狀態', app.navState),
-                  _Row('狀態標籤', app.navStateLabel),
+                  _Row('導航狀態', '${app.navState}（${app.navStateLabel}）'),
                   _Row('麥克風',
-                      app.isRecordingMic ? '錄音中 ●' : '未啟動',
+                      app.isRecordingMic ? '錄音中' : '未啟動',
                       color: app.isRecordingMic
                           ? Colors.greenAccent : Colors.white38),
                   _Row('TTS',
                       app.ttsEnabled ? '已開啟' : '已關閉',
                       color: app.ttsEnabled
                           ? Colors.greenAccent : Colors.white38),
-                ],
-              ),
-            ),
+                  const SizedBox(height: 8),
+                  const Divider(color: Colors.white12, height: 1),
 
-            const Divider(color: Colors.white12, height: 1),
+                  // ── 伺服器 Debug 狀態 ────────────────────────────
+                  const SizedBox(height: 8),
+                  _SectionTitle('伺服器 Debug 狀態'),
 
-            // ── 訊息記錄標題 ───────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Row(
-                children: [
-                  const Text('訊息記錄',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.amber,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1)),
-                  const Spacer(),
-                  Text('${app.messages.length} 筆',
-                      style: const TextStyle(
-                          fontSize: 10, color: Colors.white30)),
-                ],
-              ),
-            ),
+                  if (_fetchError != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Text('拉取失敗：$_fetchError',
+                          style: const TextStyle(
+                              fontSize: 10, color: Colors.redAccent)),
+                    )
+                  else if (d == null)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4),
+                      child: Text('載入中…',
+                          style: TextStyle(
+                              fontSize: 10, color: Colors.white30)),
+                    )
+                  else ...[
+                    // 連線
+                    _SubTitle('連線狀態'),
+                    _Row('攝影機 WS',
+                        d['esp32_camera_connected'] == true ? '已連線' : '未連線',
+                        color: d['esp32_camera_connected'] == true
+                            ? Colors.greenAccent : Colors.redAccent),
+                    _Row('音訊 WS',
+                        d['esp32_audio_connected'] == true ? '已連線' : '未連線',
+                        color: d['esp32_audio_connected'] == true
+                            ? Colors.greenAccent : Colors.redAccent),
+                    _Row('UI 客戶端',  '${d['ui_client_count']}'),
+                    _Row('觀看者',    '${d['camera_viewer_count']}'),
+                    _Row('IMU 客戶端', '${d['imu_ws_client_count']}'),
 
-            // ── 訊息清單（最新在最下）──────────────────────────────
-            Expanded(
-              child: ListView.builder(
-                controller:  scrollCtrl,
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                itemCount:   app.messages.length,
-                itemBuilder: (_, i) {
-                  final msg = app.messages[i];
-                  return Padding(
+                    // 導航
+                    _SubTitle('導航狀態'),
+                    _Row('狀態機',   '${d['orchestrator_state']}'),
+                    _Row('盲道導航',
+                        d['navigation_active'] == true ? '啟用中' : '未啟用',
+                        color: d['navigation_active'] == true
+                            ? Colors.greenAccent : Colors.white38),
+                    _Row('過馬路',
+                        d['cross_street_active'] == true ? '啟用中' : '未啟用',
+                        color: d['cross_street_active'] == true
+                            ? Colors.greenAccent : Colors.white38),
+
+                    // 模型
+                    _SubTitle('模型狀態'),
+                    _Row('YOLO 分割',
+                        d['yolo_seg_loaded'] == true ? '已載入' : '未載入',
+                        color: d['yolo_seg_loaded'] == true
+                            ? Colors.greenAccent : Colors.redAccent),
+                    _Row('障礙物偵測',
+                        d['obstacle_detector_loaded'] == true ? '已載入' : '未載入',
+                        color: d['obstacle_detector_loaded'] == true
+                            ? Colors.greenAccent : Colors.redAccent),
+                    _Row('GPU',
+                        d['gpu_available'] == true
+                            ? '${d['gpu_name']}'
+                            : '不可用 (CPU)',
+                        color: d['gpu_available'] == true
+                            ? Colors.greenAccent : Colors.amber),
+
+                    // ASR
+                    _SubTitle('ASR 語音辨識'),
+                    _Row('Partial',    '${d['current_partial_len']} 字'),
+                    _Row('Final 紀錄', '${d['recent_finals_count']} 筆'),
+                    if ((d['last_final'] ?? '').toString().isNotEmpty)
+                      _Row('最新辨識',  '${d['last_final']}'),
+
+                    // 音訊
+                    _SubTitle('音訊狀態'),
+                    _Row('Debug 錄音',
+                        d['debug_rec_active'] == true ? '錄音中' : '閒置',
+                        color: d['debug_rec_active'] == true
+                            ? Colors.amber : Colors.white38),
+                    if (d['debug_rec_active'] == true)
+                      _Row('錄音緩衝',
+                          '${(d['debug_rec_bytes'] / 1024).toStringAsFixed(1)} KB'),
+                    _Row('聲紋錄製',
+                        d['enroll_active'] == true ? '錄製中' : '閒置'),
+                    _Row('持續監測',
+                        d['verify_continuous'] == true ? '監測中' : '關閉'),
+                    _Row('取樣率',    '${d['sample_rate']} Hz'),
+
+                    // 系統
+                    _SubTitle('系統資訊'),
+                    _Row('運行時間',  '${d['uptime']}'),
+                  ],
+
+                  const SizedBox(height: 8),
+                  const Divider(color: Colors.white12, height: 1),
+
+                  // ── 訊息記錄標題 ─────────────────────────────────
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _SectionTitle('訊息記錄'),
+                      const Spacer(),
+                      Text('${app.messages.length} 筆',
+                          style: const TextStyle(
+                              fontSize: 10, color: Colors.white30)),
+                    ],
+                  ),
+
+                  // ── 訊息清單 ─────────────────────────────────────
+                  ...app.messages.map((msg) => Padding(
                     padding: const EdgeInsets.symmetric(vertical: 1.5),
                     child: Text(
                       msg,
@@ -276,8 +401,8 @@ class _PanelContent extends StatelessWidget {
                         fontFamily: 'monospace',
                       ),
                     ),
-                  );
-                },
+                  )),
+                ],
               ),
             ),
 
@@ -324,7 +449,7 @@ class _Row extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 68,
+            width: 78,
             child: Text(label,
                 style: const TextStyle(
                     fontSize: 10,
@@ -342,6 +467,43 @@ class _Row extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── 區段標題 ──────────────────────────────────────────────────────────────────
+class _SectionTitle extends StatelessWidget {
+  final String text;
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 6),
+      child: Text(text,
+          style: const TextStyle(
+              fontSize: 11,
+              color: Colors.amber,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1)),
+    );
+  }
+}
+
+// ── 子區段標題 ────────────────────────────────────────────────────────────────
+class _SubTitle extends StatelessWidget {
+  final String text;
+  const _SubTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: 10,
+              color: Colors.blueAccent.withAlpha(180),
+              fontWeight: FontWeight.w600)),
     );
   }
 }

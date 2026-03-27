@@ -66,4 +66,10 @@ class ApiService {
     await _dio.post('/api/settings/position_mode', data: {'mode': mode});
   }
 
+  // ── 伺服器 Debug 狀態 ─────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> debugStatus() async {
+    final resp = await _dio.get('/api/debug_status');
+    return resp.data as Map<String, dynamic>;
+  }
+
 }

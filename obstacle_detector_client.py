@@ -65,7 +65,16 @@ class ObstacleDetectorClient:
             # 固定障礙物
             'pole', 'post', 'column', 'pillar', 'stanchion', 'bollard', 'utility pole',
             'telegraph pole', 'light pole', 'street pole', 'signpost', 'support post',
-            'vertical post', 'bench', 'chair', 'potted plant', 'hydrant', 'cone', 'stone', 'box'
+            'vertical post', 'bench', 'chair', 'potted plant', 'hydrant', 'cone', 'stone', 'box',
+            # 額外常見路面障礙物（視障者最容易碰到）
+            'trash can', 'garbage bin', 'barrel', 'bucket', 'cart', 'trolley',
+            'ladder', 'fence', 'barrier', 'wall', 'gate', 'door',
+            'table', 'shelf', 'cabinet', 'rack', 'stand',
+            'rock', 'tree', 'branch', 'root', 'curb',
+            'stairs', 'step', 'ramp', 'hole',
+            'bag', 'suitcase', 'luggage', 'backpack',
+            # 通用物體（捕捉白名單外的未知障礙物）
+            'object', 'obstacle', 'thing', 'item', 'stuff',
         ]
         try:
             logger.info("正在加载 YOLOE 障碍物模型...")

@@ -305,6 +305,54 @@
     border-radius:7px; padding:5px 12px; font-size:12px;
     cursor:pointer; margin-bottom:12px;
   }
+
+  /* ── Debug 狀態面板 ───────────────────────────────────────────────────────── */
+  .debug-panel{
+    border-top:1px solid var(--line);
+    background:#0c121a;
+    font-size:12px;
+    flex-shrink:0;
+  }
+  .debug-toggle{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 14px; cursor:pointer; user-select:none;
+    color:var(--muted); font-weight:600;
+    transition:background .2s;
+  }
+  .debug-toggle:hover{ background:rgba(255,255,255,.04); }
+  .debug-toggle .arrow{
+    transition:transform .25s;
+    font-size:10px;
+  }
+  .debug-toggle .arrow.open{ transform:rotate(180deg); }
+  .debug-body{
+    display:none; padding:10px 14px;
+    max-height:45vh; overflow-y:auto;
+  }
+  .debug-body.open{ display:block; }
+  .debug-section{ margin-bottom:10px; }
+  .debug-section-title{
+    font-size:11px; font-weight:700; color:#ffd769;
+    margin-bottom:4px; padding-bottom:3px;
+    border-bottom:1px dashed rgba(255,255,255,.1);
+  }
+  .debug-row{
+    display:flex; justify-content:space-between;
+    padding:2px 0; color:var(--muted);
+  }
+  .debug-row .label{ color:#8899aa; }
+  .debug-row .value{ font-family:'Cascadia Code',monospace; color:var(--text); }
+  .debug-dot{
+    display:inline-block; width:7px; height:7px; border-radius:50%;
+    margin-right:4px; vertical-align:middle;
+  }
+  .debug-dot.on{ background:var(--ok); box-shadow:0 0 6px var(--ok); }
+  .debug-dot.off{ background:var(--err); box-shadow:0 0 6px var(--err); }
+  .debug-dot.warn{ background:#ffd769; box-shadow:0 0 6px #ffd769; }
+  .debug-body::-webkit-scrollbar{ width:6px; }
+  .debug-body::-webkit-scrollbar-thumb{ background:#2a6df4; border-radius:3px; }
+  .debug-body::-webkit-scrollbar-track{ background:#111a2e; border-radius:3px; }
+  .debug-fetch-err{ color:var(--err); font-size:11px; padding:4px 0; }
 </style>
 </head>
 <body>
@@ -438,6 +486,68 @@
         <ul id="finalList"></ul>
       </div>
     </div>
+
+    <!-- Debug 狀態面板 -->
+    <div class="debug-panel">
+      <div class="debug-toggle" onclick="toggleDebugPanel()">
+        <span>Debug 狀態面板</span>
+        <span class="arrow" id="debugArrow">▼</span>
+      </div>
+      <div class="debug-body" id="debugBody">
+        <div id="debugFetchErr" class="debug-fetch-err" style="display:none"></div>
+
+        <!-- 連線狀態 -->
+        <div class="debug-section">
+          <div class="debug-section-title">連線狀態</div>
+          <div class="debug-row"><span class="label">ESP32 攝影機</span><span class="value" id="d_cam">--</span></div>
+          <div class="debug-row"><span class="label">ESP32 音訊 (ASR)</span><span class="value" id="d_audio">--</span></div>
+          <div class="debug-row"><span class="label">UI 客戶端</span><span class="value" id="d_ui">--</span></div>
+          <div class="debug-row"><span class="label">攝影機觀看者</span><span class="value" id="d_viewers">--</span></div>
+          <div class="debug-row"><span class="label">IMU 客戶端</span><span class="value" id="d_imu">--</span></div>
+        </div>
+
+        <!-- 導航狀態 -->
+        <div class="debug-section">
+          <div class="debug-section-title">導航狀態</div>
+          <div class="debug-row"><span class="label">狀態機</span><span class="value" id="d_orch">--</span></div>
+          <div class="debug-row"><span class="label">盲道導航</span><span class="value" id="d_nav">--</span></div>
+          <div class="debug-row"><span class="label">過馬路</span><span class="value" id="d_cross">--</span></div>
+        </div>
+
+        <!-- 模型狀態 -->
+        <div class="debug-section">
+          <div class="debug-section-title">模型狀態</div>
+          <div class="debug-row"><span class="label">YOLO 分割</span><span class="value" id="d_yolo">--</span></div>
+          <div class="debug-row"><span class="label">障礙物偵測</span><span class="value" id="d_obstacle">--</span></div>
+          <div class="debug-row"><span class="label">GPU</span><span class="value" id="d_gpu">--</span></div>
+        </div>
+
+        <!-- ASR 狀態 -->
+        <div class="debug-section">
+          <div class="debug-section-title">ASR 語音辨識</div>
+          <div class="debug-row"><span class="label">Partial 文字</span><span class="value" id="d_partial">--</span></div>
+          <div class="debug-row"><span class="label">Final 紀錄數</span><span class="value" id="d_finals">--</span></div>
+          <div class="debug-row"><span class="label">最新辨識</span><span class="value" id="d_last_final" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">--</span></div>
+        </div>
+
+        <!-- 音訊狀態 -->
+        <div class="debug-section">
+          <div class="debug-section-title">音訊狀態</div>
+          <div class="debug-row"><span class="label">Debug 錄音</span><span class="value" id="d_rec">--</span></div>
+          <div class="debug-row"><span class="label">錄音緩衝區</span><span class="value" id="d_rec_buf">--</span></div>
+          <div class="debug-row"><span class="label">聲紋錄製</span><span class="value" id="d_enroll">--</span></div>
+          <div class="debug-row"><span class="label">聲紋持續監測</span><span class="value" id="d_verify">--</span></div>
+          <div class="debug-row"><span class="label">取樣率</span><span class="value" id="d_sr">--</span></div>
+        </div>
+
+        <!-- 系統資訊 -->
+        <div class="debug-section">
+          <div class="debug-section-title">系統資訊</div>
+          <div class="debug-row"><span class="label">伺服器運行</span><span class="value" id="d_uptime">--</span></div>
+        </div>
+      </div>
+    </div>
+
   </aside>
 </div>
 
@@ -719,6 +829,81 @@ async function toggleDebugRec(){
         alert('錄音失敗：' + (data.msg || '未知錯誤'));
       }
     } catch(e){ alert('無法停止錄音：' + e.message); }
+  }
+}
+
+/* ── Debug 狀態面板 ─────────────────────────────────────────────────────── */
+let _debugPanelOpen = false;
+let _debugTimer = null;
+
+function toggleDebugPanel(){
+  _debugPanelOpen = !_debugPanelOpen;
+  const body  = document.getElementById('debugBody');
+  const arrow = document.getElementById('debugArrow');
+  body.classList.toggle('open', _debugPanelOpen);
+  arrow.classList.toggle('open', _debugPanelOpen);
+
+  if(_debugPanelOpen){
+    fetchDebugStatus();
+    _debugTimer = setInterval(fetchDebugStatus, 2000);
+  } else {
+    if(_debugTimer){ clearInterval(_debugTimer); _debugTimer = null; }
+  }
+}
+
+function _dot(ok, onTxt, offTxt){
+  const cls = ok ? 'on' : 'off';
+  return `<span class="debug-dot ${cls}"></span>${ok ? (onTxt||'啟用') : (offTxt||'停用')}`;
+}
+
+async function fetchDebugStatus(){
+  const errEl = document.getElementById('debugFetchErr');
+  try{
+    const res = await fetch('/api/debug_status');
+    if(!res.ok){ errEl.textContent = `API 錯誤 ${res.status}`; errEl.style.display=''; return; }
+    errEl.style.display = 'none';
+    const d = await res.json();
+
+    // 連線狀態
+    document.getElementById('d_cam').innerHTML   = _dot(d.esp32_camera_connected, '已連線','未連線');
+    document.getElementById('d_audio').innerHTML = _dot(d.esp32_audio_connected, '已連線 (ASR 可用)','未連線 (無音訊來源)');
+    document.getElementById('d_ui').textContent      = d.ui_client_count;
+    document.getElementById('d_viewers').textContent  = d.camera_viewer_count;
+    document.getElementById('d_imu').textContent      = d.imu_ws_client_count;
+
+    // 導航狀態
+    document.getElementById('d_orch').textContent = d.orchestrator_state;
+    document.getElementById('d_nav').innerHTML    = _dot(d.navigation_active, '啟用中','未啟用');
+    document.getElementById('d_cross').innerHTML  = _dot(d.cross_street_active, '啟用中','未啟用');
+
+    // 模型狀態
+    document.getElementById('d_yolo').innerHTML     = _dot(d.yolo_seg_loaded, '已載入','未載入');
+    document.getElementById('d_obstacle').innerHTML = _dot(d.obstacle_detector_loaded, '已載入','未載入');
+    const gpuHtml = d.gpu_available
+      ? `<span class="debug-dot on"></span>${d.gpu_name}`
+      : `<span class="debug-dot off"></span>不可用 (CPU)`;
+    document.getElementById('d_gpu').innerHTML = gpuHtml;
+
+    // ASR 狀態
+    document.getElementById('d_partial').textContent = d.current_partial_len + ' 字';
+    document.getElementById('d_finals').textContent  = d.recent_finals_count + ' 筆';
+    document.getElementById('d_last_final').textContent = d.last_final || '(無)';
+    document.getElementById('d_last_final').title       = d.last_final || '';
+
+    // 音訊狀態
+    document.getElementById('d_rec').innerHTML    = _dot(d.debug_rec_active, '錄音中','閒置');
+    const bufKB = (d.debug_rec_bytes / 1024).toFixed(1);
+    document.getElementById('d_rec_buf').textContent = d.debug_rec_active ? `${bufKB} KB` : '--';
+    document.getElementById('d_enroll').innerHTML = _dot(d.enroll_active, '錄製中','閒置');
+    document.getElementById('d_verify').innerHTML = _dot(d.verify_continuous, '監測中','關閉');
+    document.getElementById('d_sr').textContent   = d.sample_rate + ' Hz';
+
+    // 系統資訊
+    document.getElementById('d_uptime').textContent = d.uptime;
+
+  } catch(e){
+    errEl.textContent = '連線失敗：' + e.message;
+    errEl.style.display = '';
   }
 }
 </script>

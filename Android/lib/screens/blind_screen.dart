@@ -180,6 +180,21 @@ class _BlindScreenState extends State<BlindScreen>
     if (_isNavigating(app.navState)) {
       await app.stopNavigation();
     } else {
+      // 進入目的地選擇畫面
+      if (mounted) {
+        Navigator.pushNamed(context, '/nav_dest');
+      }
+    }
+  }
+
+  // ── 避障功能（原盲道導航）─────────────────────────────────────────────────
+  Future<void> _doObstacleAvoidance() async {
+    HapticFeedback.heavyImpact();
+    final app = context.read<AppProvider>();
+    if (!app.connected) { _announce('伺服器未連線，請稍候'); return; }
+    if (_isNavigating(app.navState)) {
+      await app.stopNavigation();
+    } else {
       await app.startBlindpath();
     }
   }
@@ -218,7 +233,7 @@ class _BlindScreenState extends State<BlindScreen>
 
   String _navStateVoice(String s) {
     const m = {
-      'BLINDPATH_NAV':          '盲道導航已開始',
+      'BLINDPATH_NAV':          '避障導航已開始',
       'SEEKING_CROSSWALK':      '正在靠近斑馬線',
       'WAIT_TRAFFIC_LIGHT':     '已到達斑馬線，等待綠燈',
       'CROSSING':               '綠燈，開始過馬路',
@@ -292,10 +307,11 @@ class _BlindScreenState extends State<BlindScreen>
               children: [
                 // ── 頁面 0：主功能（預設）─────────────────────────────────
                 _MainPage(
-                  app:         app,
-                  onNavAction: _doNavAction,
-                  onEmergency: _doEmergency,
-                  onAnnounce:  _announce,
+                  app:                  app,
+                  onNavAction:          _doNavAction,
+                  onObstacleAvoidance:  _doObstacleAvoidance,
+                  onEmergency:          _doEmergency,
+                  onAnnounce:           _announce,
                 ),
                 // ── 頁面 1：設定（左滑進入）───────────────────────────────
                 _SettingsPage(
@@ -324,12 +340,14 @@ class _BlindScreenState extends State<BlindScreen>
 class _MainPage extends StatelessWidget {
   final AppProvider app;
   final VoidCallback onNavAction;
+  final VoidCallback onObstacleAvoidance;
   final VoidCallback onEmergency;
   final void Function(String) onAnnounce;
 
   const _MainPage({
     required this.app,
     required this.onNavAction,
+    required this.onObstacleAvoidance,
     required this.onEmergency,
     required this.onAnnounce,
   });
@@ -366,20 +384,20 @@ class _MainPage extends StatelessWidget {
           ),
         ),
 
-        // ── 主導航大按鈕（佔約 55%）──────────────────────────────────
+        // ── 主導航大按鈕（佔約 42%）──────────────────────────────────
         Expanded(
-          flex: 55,
+          flex: 42,
           child: _TriggerButton(
             semanticsLabel: !app.connected
                 ? '伺服器未連線，無法導航'
                 : _isNavigating
                     ? '停止導航，目前${_stateLabel(app.navState)}'
-                    : '開始盲道導航，點擊觸發',
+                    : '開始導航，點擊選擇目的地',
             onAction: onNavAction,
             onFocus: () => onAnnounce(
               !app.connected
                   ? '伺服器未連線'
-                  : _isNavigating ? '停止導航' : '開始盲道導航',
+                  : _isNavigating ? '停止導航' : '開始導航',
             ),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 300),
@@ -397,10 +415,10 @@ class _MainPage extends StatelessWidget {
                         : _isNavigating
                             ? Icons.stop_circle_outlined
                             : Icons.navigation,
-                    size: 90,
+                    size: 80,
                     color: app.connected ? Colors.white : Colors.white38,
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   Text(
                     !app.connected
                         ? '連線中…'
@@ -408,13 +426,13 @@ class _MainPage extends StatelessWidget {
                             ? '停止導航'
                             : '開始導航',
                     style: TextStyle(
-                      fontSize: 46,
+                      fontSize: 42,
                       fontWeight: FontWeight.bold,
                       color: app.connected ? Colors.white : Colors.white38,
                     ),
                   ),
                   if (_isNavigating) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Text(
                       _stateLabel(app.navState),
                       style: const TextStyle(
@@ -427,9 +445,58 @@ class _MainPage extends StatelessWidget {
           ),
         ),
 
-        // ── 文件閱讀按鈕（佔約 15%）──────────────────────────────────
+        // ── 避障功能按鈕（佔約 15%）──────────────────────────────────
         Expanded(
           flex: 15,
+          child: _TriggerButton(
+            semanticsLabel: !app.connected
+                ? '伺服器未連線'
+                : _isNavigating
+                    ? '避障功能進行中，點擊停止'
+                    : '避障功能，點擊開啟盲道導航與障礙物偵測',
+            onAction: onObstacleAvoidance,
+            onFocus: () => onAnnounce(
+              _isNavigating ? '停止避障' : '避障功能',
+            ),
+            child: Container(
+              color: _isNavigating
+                  ? const Color(0xFF880E4F)
+                  : const Color(0xFF4A148C),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isNavigating ? Icons.stop : Icons.shield,
+                    size: 32, color: Colors.white,
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isNavigating ? '停止避障' : '避障功能',
+                        style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white),
+                      ),
+                      Text(
+                        _isNavigating ? '點擊停止' : '盲道導航＋障礙物偵測',
+                        style: const TextStyle(
+                            fontSize: 12, color: Colors.white60),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // ── 文件閱讀按鈕（佔約 12%）──────────────────────────────────
+        Expanded(
+          flex: 12,
           child: _TriggerButton(
             semanticsLabel: '文件閱讀，拍照辨識文件語音朗讀',
             onAction: () => Navigator.pushNamed(context, '/read'),
@@ -503,7 +570,7 @@ class _MainPage extends StatelessWidget {
 
   String _stateLabel(String s) {
     const m = {
-      'BLINDPATH_NAV':          '盲道導航中',
+      'BLINDPATH_NAV':          '避障導航中',
       'SEEKING_CROSSWALK':      '靠近斑馬線',
       'WAIT_TRAFFIC_LIGHT':     '等待綠燈',
       'CROSSING':               '過馬路中',

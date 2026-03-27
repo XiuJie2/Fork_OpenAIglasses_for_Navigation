@@ -11,6 +11,10 @@
     <!-- ── 麥克風 ── -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
 
+    <!-- ── GPS 定位 ── -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+
     <!-- ── 前台服務（背景持續監聽）── -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
