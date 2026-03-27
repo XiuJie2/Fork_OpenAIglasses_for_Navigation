@@ -60,21 +60,25 @@ class ObstacleDetectorClient:
         self.WHITELIST_CLASSES = [
             # 人（視障者最需要閃避）
             'person',
-            # 交通工具
-            'bicycle', 'car', 'motorcycle', 'bus', 'truck', 'animal', 'scooter', 'stroller', 'dog',
-            # 固定障礙物
-            'pole', 'post', 'column', 'pillar', 'stanchion', 'bollard', 'utility pole',
-            'telegraph pole', 'light pole', 'street pole', 'signpost', 'support post',
-            'vertical post', 'bench', 'chair', 'potted plant', 'hydrant', 'cone', 'stone', 'box',
-            # 額外常見路面障礙物（視障者最容易碰到）
-            'trash can', 'garbage bin', 'barrel', 'bucket', 'cart', 'trolley',
-            'ladder', 'fence', 'barrier', 'wall', 'gate', 'door',
-            'table', 'shelf', 'cabinet', 'rack', 'stand',
-            'rock', 'tree', 'branch', 'root', 'curb',
+            # 交通工具與動物
+            'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+            'animal', 'scooter', 'stroller', 'dog',
+            # 柱狀障礙物（精簡同義詞，保留高頻詞）
+            'pole', 'post', 'bollard', 'utility pole', 'light pole', 'signpost',
+            # 路邊常見固定物
+            'bench', 'chair', 'potted plant', 'hydrant', 'cone', 'stone', 'box',
+            'trash can', 'barrel', 'cart',
+            # 阻隔物
+            'fence', 'barrier', 'wall', 'gate', 'door',
+            # 地面障礙
+            'rock', 'tree', 'branch', 'curb',
             'stairs', 'step', 'ramp', 'hole',
-            'bag', 'suitcase', 'luggage', 'backpack',
-            # 通用物體（捕捉白名單外的未知障礙物）
-            'object', 'obstacle', 'thing', 'item', 'stuff',
+            # 行李
+            'bag', 'suitcase', 'backpack',
+            # 其他
+            'table', 'ladder',
+            # 通用（捕捉未知障礙物）
+            'object', 'obstacle',
         ]
         try:
             logger.info("正在加载 YOLOE 障碍物模型...")

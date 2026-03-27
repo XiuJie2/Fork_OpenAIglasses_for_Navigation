@@ -55,26 +55,29 @@ VIS_COLORS = {
 
 # 障碍物名称映射（中文標籤，用於 AR 顯示與語音播報）
 _OBSTACLE_NAME_CN = {
-    'person': '人', 'bicycle': '自行车', 'car': '车',
-    'motorcycle': '摩托车', 'bus': '公交车', 'truck': '卡车',
-    'animal': '动物', 'scooter': '电瓶车', 'stroller': '婴儿车', 'dog': '狗',
-    # 固定障礙物
-    'pole': '柱子', 'post': '柱子', 'column': '柱子', 'pillar': '柱子',
-    'bollard': '護柱', 'utility pole': '電線桿', 'light pole': '路燈',
-    'signpost': '路牌', 'bench': '長椅', 'chair': '椅子',
-    'potted plant': '盆栽', 'hydrant': '消防栓', 'cone': '三角錐',
-    'stone': '石頭', 'box': '箱子',
-    # 額外常見障礙物
-    'trash can': '垃圾桶', 'garbage bin': '垃圾桶', 'barrel': '桶',
-    'bucket': '水桶', 'cart': '推車', 'trolley': '推車',
-    'ladder': '梯子', 'fence': '圍欄', 'barrier': '路障', 'wall': '牆',
-    'gate': '門', 'door': '門', 'table': '桌子', 'shelf': '架子',
+    # 動態物體（需報名稱）
+    'person': '人', 'bicycle': '自行車', 'car': '車',
+    'motorcycle': '摩托車', 'bus': '公車', 'truck': '卡車',
+    'animal': '動物', 'scooter': '電動車', 'stroller': '嬰兒車', 'dog': '狗',
+    # 柱狀
+    'pole': '柱子', 'post': '柱子', 'bollard': '護柱',
+    'utility pole': '電線桿', 'light pole': '路燈', 'signpost': '路牌',
+    # 路邊固定物
+    'bench': '長椅', 'chair': '椅子', 'potted plant': '盆栽',
+    'hydrant': '消防栓', 'cone': '三角錐', 'stone': '石頭', 'box': '箱子',
+    'trash can': '垃圾桶', 'barrel': '桶', 'cart': '推車',
+    # 阻隔物
+    'fence': '圍欄', 'barrier': '路障', 'wall': '牆',
+    'gate': '門', 'door': '門',
+    # 地面
     'rock': '石頭', 'tree': '樹', 'branch': '樹枝', 'curb': '路緣',
     'stairs': '樓梯', 'step': '台階', 'ramp': '斜坡', 'hole': '坑洞',
-    'bag': '袋子', 'suitcase': '行李箱', 'luggage': '行李', 'backpack': '背包',
+    # 行李
+    'bag': '袋子', 'suitcase': '行李箱', 'backpack': '背包',
+    # 其他
+    'table': '桌子', 'ladder': '梯子',
     # 通用
-    'object': '障礙物', 'obstacle': '障礙物', 'thing': '障礙物',
-    'item': '障礙物', 'stuff': '障礙物',
+    'object': '障礙物', 'obstacle': '障礙物',
 }
 
 # 動態類別名稱列表（會移動的物體，需要報名稱提醒視障者）
@@ -87,6 +90,23 @@ def _obstacle_size_label(area_ratio: float) -> str:
     elif area_ratio >= 0.04:
         return "中型"
     return "小型"
+
+def _obstacle_urgency(bottom_y_ratio: float, area_ratio: float):
+    """根據障礙物距離回傳緊迫等級與對應語尾
+
+    Returns: (level: int, suffix: str)
+        level 0 = 遠（僅提示）
+        level 1 = 中（注意）
+        level 2 = 近（小心）
+        level 3 = 極近（快閃開）
+    """
+    if bottom_y_ratio > 0.85 or area_ratio > 0.25:
+        return 3, "快閃開！"
+    elif bottom_y_ratio > 0.70 or area_ratio > 0.12:
+        return 2, "小心！"
+    elif bottom_y_ratio > 0.55 or area_ratio > 0.05:
+        return 1, "注意避讓。"
+    return 0, "注意。"
 
 @dataclass
 class ProcessingResult:
@@ -252,10 +272,12 @@ class BlindPathNavigator:
         self.OBSTACLE_DETECTION_INTERVAL = int(os.getenv("AIGLASS_OBS_INTERVAL", "8"))   # FPS=20 下每 0.4 秒偵測一次
         self.OBSTACLE_CACHE_DURATION_FRAMES = int(os.getenv("AIGLASS_OBS_CACHE_FRAMES", "6"))   # 快取 6 幀
 
-        # 障碍物播报管理
+        # 障礙物播報管理
         self.last_obstacle_speech = ""
         self.last_obstacle_speech_time = 0
         self.obstacle_speech_cooldown = 2.0  # 同一障礙物 2 秒內不重複播報
+        self.last_obstacle_area_ratio = 0.0  # 上次播報時的面積比，用於距離縮短重新提醒
+        self.obstacle_approach_threshold = 0.03  # 面積增加超過此值視為「正在靠近」
         
         # 掩码稳定化参数（已禁用光流外推，这些参数不再使用）
         self.MASK_STAB_MIN_AREA = int(os.getenv("AIGLASS_MASK_MIN_AREA", "1500"))
@@ -2138,23 +2160,32 @@ class BlindPathNavigator:
             current_time = time.time()
 
             area_ratio = main_obstacle.get('area_ratio', 0)
+            bottom_y_ratio = main_obstacle.get('bottom_y_ratio', 0)
 
-            # 用「名稱+方向」作為去重 key，同一物體換方向也要重新播報
+            # 用「名稱+方向」作為去重 key
             speech_key = f"{obstacle_name}_{direction}"
             should_announce = False
+
             if speech_key != self.last_obstacle_speech:
+                # 新障礙物 → 立即播報
                 should_announce = True
-                self.last_obstacle_speech = speech_key
-                self.last_obstacle_speech_time = current_time
+            elif area_ratio - self.last_obstacle_area_ratio > self.obstacle_approach_threshold:
+                # 同一障礙物但明顯靠近（面積增大）→ 重新播報
+                should_announce = True
             elif current_time - self.last_obstacle_speech_time > self.obstacle_speech_cooldown:
+                # cooldown 過期 → 允許重播
                 should_announce = True
-                self.last_obstacle_speech_time = current_time
 
             if should_announce:
-                self.pending_obstacle_voice = self._speech_for_obstacle_dir(obstacle_name, direction, area_ratio)
+                self.last_obstacle_speech = speech_key
+                self.last_obstacle_speech_time = current_time
+                self.last_obstacle_area_ratio = area_ratio
+                self.pending_obstacle_voice = self._speech_for_obstacle_dir(
+                    obstacle_name, direction, area_ratio, bottom_y_ratio)
         else:
-            # 没有近距离障碍物
+            # 沒有近距離障礙物 → 重置所有追蹤狀態
             self.last_obstacle_speech = ""
+            self.last_obstacle_area_ratio = 0.0
             self.pending_obstacle_voice = None
 
     def _check_obstacles(self, image, mask, frame_visualizations):
@@ -2689,25 +2720,26 @@ class BlindPathNavigator:
         except:
             return '障碍物'
 
-    def _speech_for_obstacle(self, name: str, area_ratio: float = 0) -> str:
-        """障礙物語音：動態物體報名稱，靜態物體只報大小"""
+    def _speech_for_obstacle(self, name: str, area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
+        """障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
+        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
         k = (name or '').strip().lower()
         if k in DYNAMIC_CLASS_NAMES:
             cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"前方有{cn}，停一下。"
+            return f"前方有{cn}，{suffix}"
         size = _obstacle_size_label(area_ratio)
-        return f"前方有{size}障礙物，注意避讓。"
+        return f"前方有{size}障礙物，{suffix}"
 
-    def _speech_for_obstacle_dir(self, name: str, direction: str = "前方", area_ratio: float = 0) -> str:
-        """帶方向的障礙物語音：動態物體報名稱，靜態物體只報大小"""
+    def _speech_for_obstacle_dir(self, name: str, direction: str = "前方",
+                                  area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
+        """帶方向的障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
+        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
         k = (name or '').strip().lower()
         if k in DYNAMIC_CLASS_NAMES:
-            # 動態物體（人/車/狗等）：報名稱，提醒停下
             cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"{direction}有{cn}，停一下。"
-        # 靜態障礙物：只報大小，不報名稱（速度優先）
+            return f"{direction}有{cn}，{suffix}"
         size = _obstacle_size_label(area_ratio)
-        return f"{direction}有{size}障礙物，注意避讓。"
+        return f"{direction}有{size}障礙物，{suffix}"
 
     def _draw_command_button(self, image, text):
         """绘制底部中央的指令按钮（与斑马线模式统一）"""
@@ -3382,25 +3414,26 @@ class BlindPathNavigator:
         
         return stabilized
   
-    def _speech_for_obstacle(self, name: str, area_ratio: float = 0) -> str:
-        """障礙物語音：動態物體報名稱，靜態物體只報大小"""
+    def _speech_for_obstacle(self, name: str, area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
+        """障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
+        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
         k = (name or '').strip().lower()
         if k in DYNAMIC_CLASS_NAMES:
             cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"前方有{cn}，停一下。"
+            return f"前方有{cn}，{suffix}"
         size = _obstacle_size_label(area_ratio)
-        return f"前方有{size}障礙物，注意避讓。"
+        return f"前方有{size}障礙物，{suffix}"
 
-    def _speech_for_obstacle_dir(self, name: str, direction: str = "前方", area_ratio: float = 0) -> str:
-        """帶方向的障礙物語音：動態物體報名稱，靜態物體只報大小"""
+    def _speech_for_obstacle_dir(self, name: str, direction: str = "前方",
+                                  area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
+        """帶方向的障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
+        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
         k = (name or '').strip().lower()
         if k in DYNAMIC_CLASS_NAMES:
-            # 動態物體（人/車/狗等）：報名稱，提醒停下
             cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"{direction}有{cn}，停一下。"
-        # 靜態障礙物：只報大小，不報名稱（速度優先）
+            return f"{direction}有{cn}，{suffix}"
         size = _obstacle_size_label(area_ratio)
-        return f"{direction}有{size}障礙物，注意避讓。"
+        return f"{direction}有{size}障礙物，{suffix}"
 
     def _update_obstacle_properties(self, obs, H, W):
         """更新障碍物的派生属性"""

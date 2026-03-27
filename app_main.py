@@ -80,6 +80,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── 後台管理路由（JWT 認證 + 使用者/聯絡人 CRUD + 統計）──
+from auth import router as auth_router
+app.include_router(auth_router)
+
 # ====== 状态与容器 ======
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

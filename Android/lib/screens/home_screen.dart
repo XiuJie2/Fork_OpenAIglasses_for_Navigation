@@ -1323,7 +1323,8 @@ class _SettingToggle extends StatelessWidget {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: Colors.greenAccent,
+            activeTrackColor: Colors.greenAccent.withValues(alpha: 0.5),
+            activeThumbColor: Colors.greenAccent,
           ),
         ],
       ),

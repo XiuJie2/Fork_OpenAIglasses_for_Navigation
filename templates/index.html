@@ -270,6 +270,16 @@
     border-radius:12px; padding:20px; margin-bottom:20px;
   }
   .mgr-card h3{ margin:0 0 14px; font-size:15px; color:#ffd769; }
+  .stats-grid{
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(140px,1fr));
+    gap:12px;
+  }
+  .stat-item{
+    background:#0b0f14; border:1px solid #1f2937; border-radius:10px;
+    padding:14px; text-align:center;
+  }
+  .stat-label{ display:block; font-size:12px; color:#8b949e; margin-bottom:6px; }
+  .stat-value{ display:block; font-size:20px; font-weight:700; color:#58a6ff; }
   .add-row{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
   .add-row input, .add-row select{
     flex:1; min-width:120px; padding:8px 12px; border-radius:8px;
@@ -387,6 +397,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" onclick="switchTab('users')">👤 使用者管理</button>
       <button class="tab-btn" onclick="switchTab('contacts')">📞 聯絡人管理</button>
+      <button class="tab-btn" onclick="switchTab('stats')">📊 系統統計</button>
     </div>
 
     <!-- 使用者管理 -->
@@ -433,6 +444,46 @@
         <table class="mgr-table">
           <thead><tr><th>ID</th><th>姓名</th><th>電話</th><th>操作</th></tr></thead>
           <tbody id="contactsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 系統統計 -->
+    <div id="tabStats" style="display:none">
+      <div class="mgr-card">
+        <h3>系統資源</h3>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">CPU</span>
+            <span class="stat-value" id="statCpu">--%</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">記憶體</span>
+            <span class="stat-value" id="statMem">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">磁碟</span>
+            <span class="stat-value" id="statDisk">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">GPU</span>
+            <span class="stat-value" id="statGpu">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">使用者數</span>
+            <span class="stat-value" id="statUsers">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">聯絡人數</span>
+            <span class="stat-value" id="statContacts">--</span>
+          </div>
+        </div>
+      </div>
+      <div class="mgr-card">
+        <h3>最近操作紀錄</h3>
+        <table class="mgr-table">
+          <thead><tr><th>時間</th><th>事件</th><th>詳情</th></tr></thead>
+          <tbody id="statsLogBody"></tbody>
         </table>
       </div>
     </div>
@@ -650,7 +701,9 @@ function switchTab(tab){
   event.target.classList.add('active');
   document.getElementById('tabUsers').style.display    = tab==='users'    ? '' : 'none';
   document.getElementById('tabContacts').style.display = tab==='contacts' ? '' : 'none';
+  document.getElementById('tabStats').style.display    = tab==='stats'    ? '' : 'none';
   if(tab==='contacts') populateContactUserSel();
+  if(tab==='stats') loadStats();
 }
 
 /* ── 使用者管理 ──────────────────────────────────────────────────────────── */
@@ -785,6 +838,34 @@ function apiFetch(url, method='GET', body=null){
 
 function escHtml(str){
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ── 系統統計 ──────────────────────────────────────────────────────────── */
+async function loadStats(){
+  try{
+    const res = await apiFetch('/api/admin/stats');
+    if(!res.ok) return;
+    const d = await res.json();
+    const s = d.system || {};
+    document.getElementById('statCpu').textContent     = s.cpu_percent + '%';
+    document.getElementById('statMem').textContent      = s.memory_used_gb + '/' + s.memory_total_gb + ' GB (' + s.memory_percent + '%)';
+    document.getElementById('statDisk').textContent     = s.disk_used_gb + '/' + s.disk_total_gb + ' GB';
+    document.getElementById('statUsers').textContent    = d.users;
+    document.getElementById('statContacts').textContent = d.contacts;
+    if(d.gpu){
+      document.getElementById('statGpu').textContent = d.gpu.name + ' ' + d.gpu.memory_used_mb + '/' + d.gpu.memory_total_mb + ' MB';
+    } else {
+      document.getElementById('statGpu').textContent = '無 GPU';
+    }
+    // 操作紀錄
+    const tb = document.getElementById('statsLogBody');
+    tb.innerHTML = '';
+    (d.recent_logs || []).forEach(log => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + escHtml(log.created_at||'') + '</td><td>' + escHtml(log.event||'') + '</td><td>' + escHtml(log.detail||'') + '</td>';
+      tb.appendChild(tr);
+    });
+  } catch(e){ console.error('載入統計失敗', e); }
 }
 
 /* Enter 鍵登入 */
