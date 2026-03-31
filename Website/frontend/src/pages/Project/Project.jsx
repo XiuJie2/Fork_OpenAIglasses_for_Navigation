@@ -99,8 +99,8 @@ export default function Project() {
       <section className="relative min-h-[70vh] flex items-center overflow-hidden">
         {/* 背景裝飾光暈 */}
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/3 right-1/4 w-64 h-64 bg-brand-500/8 rounded-full blur-3xl" />
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-gray-300/5 dark:bg-brand-600/10 rounded-full blur-3xl" />
+          <div className="absolute bottom-1/3 right-1/4 w-64 h-64 bg-gray-200/5 dark:bg-brand-500/8 rounded-full blur-3xl" />
           <div className="absolute top-1/2 right-1/3 w-48 h-48 bg-amber-500/5 rounded-full blur-3xl" />
         </div>
 

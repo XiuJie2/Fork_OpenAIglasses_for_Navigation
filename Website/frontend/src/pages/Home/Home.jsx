@@ -55,8 +55,8 @@ export default function Home() {
       <section className="relative overflow-hidden">
         {/* 背景裝飾 */}
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-warm-600/10 dark:bg-brand-600/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-warm-500/5 dark:bg-brand-500/5 rounded-full blur-3xl" />
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-gray-300/5 dark:bg-brand-600/10 rounded-full blur-3xl" />
+          <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-gray-200/5 dark:bg-brand-500/5 rounded-full blur-3xl" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-brand-950/20 via-transparent to-transparent" />
         </div>
 
