@@ -9,14 +9,14 @@
 
   body {
     font-family: 'Noto Sans TC', sans-serif;
-    @apply bg-white text-gray-900 dark:bg-[#030712] dark:text-[#f9fafb];
+    @apply bg-gray-100 text-gray-800 dark:bg-[#030712] dark:text-[#f9fafb];
   }
 }
 
 @layer components {
   /* 玻璃擬態效果 */
   .glass {
-    @apply bg-gray-100/50 backdrop-blur-md border border-gray-200
+    @apply bg-white/70 backdrop-blur-md border border-gray-200
            dark:bg-white/5 dark:border-white/10;
   }
 
