@@ -241,6 +241,20 @@ class AppProvider extends ChangeNotifier {
 
   /// 更新伺服器設定（支援完整 URL 或 host+port）
   Future<void> updateServerSettings(String host, int port, {bool? secure, String? baseUrl}) async {
+    final wasConnected = _connected;
+
+    // 切換裝置前先停止所有串流，避免相機 callback 繼續把影格送往舊裝置
+    if (wasConnected) {
+      _watchdogTimer?.cancel();
+      _watchdogTimer = null;
+      _camera.stopStreaming();
+      await _audio.stopMicrophone();
+      _imu.stop();
+      _ws.disconnectAll();
+      stopPollingNavState();
+      _connected = false;
+    }
+
     _host    = host;
     _port    = port;
     _secure  = secure ?? _secure;
@@ -251,6 +265,12 @@ class AppProvider extends ChangeNotifier {
     await prefs.setBool(AppConstants.keySecure,    _secure);
     await prefs.setString(AppConstants.keyBaseUrl, _baseUrl);
     _rebuildServices();
+
+    // 若原本已連線，切換完成後重新啟動所有服務（camera callback 正確綁定新裝置）
+    if (wasConnected) {
+      await startAllServices();
+    }
+
     notifyListeners();
   }
 

@@ -13,12 +13,15 @@ from workflow_blindpath import BlindPathNavigator, ProcessingResult as BlindResu
 from workflow_crossstreet import CrossStreetNavigator, CrossStreetResult as CrossResult
 
 def _log_nav(event: str, detail: str = ""):
-    """安全記錄導航事件到後台系統日誌"""
-    try:
-        from auth import log_navigation_event
-        log_navigation_event(event, detail)
-    except Exception:
-        pass
+    """安全記錄導航事件到後台系統日誌（背景執行緒，不阻塞事件循環）"""
+    import threading
+    def _write():
+        try:
+            from auth import log_navigation_event
+            log_navigation_event(event, detail)
+        except Exception:
+            pass
+    threading.Thread(target=_write, daemon=True).start()
 
 # ========== 状态常量 ==========
 IDLE = "IDLE"                          # 空闲/未启用

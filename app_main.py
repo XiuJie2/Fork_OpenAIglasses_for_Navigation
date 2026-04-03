@@ -1113,7 +1113,11 @@ async def ws_ui(ws: WebSocket):
         init = {"partial": current_partial, "finals": recent_finals[-10:]}
         await ws.send_text("INIT:" + json.dumps(init, ensure_ascii=False))
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
+            try:
+                await ws.send_text("PING")
+            except Exception:
+                break
     except WebSocketDisconnect:
         pass
     finally:
@@ -1628,14 +1632,18 @@ async def ws_viewer(ws: WebSocket):
     print(f"[VIEWER] Browser connected. Total viewers: {len(camera_viewers)}", flush=True)
     try:
         while True:
-            # 保持连接活跃
-            await asyncio.sleep(60)
+            # 保持连接活跃，每 30 秒送一次 PING 防止 Cloudflare idle timeout（100s）
+            await asyncio.sleep(30)
+            try:
+                await ws.send_text("PING")
+            except Exception:
+                break
     except WebSocketDisconnect:
         print("[VIEWER] Browser disconnected", flush=True)
     finally:
-        try: 
+        try:
             camera_viewers.remove(ws)
-        except Exception: 
+        except Exception:
             pass
         print(f"[VIEWER] Removed. Total viewers: {len(camera_viewers)}", flush=True)
 
@@ -1646,7 +1654,11 @@ async def ws_imu(ws: WebSocket):
     imu_ws_clients.add(ws)
     try:
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(30)
+            try:
+                await ws.send_text("PING")
+            except Exception:
+                break
     except WebSocketDisconnect:
         pass
     finally:
