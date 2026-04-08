@@ -519,7 +519,7 @@ class GoogleASR:
         config = _speech.RecognitionConfig(
             encoding=_speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=self._sample_rate,
-            language_code="zh-TW",
+            language_code="cmn-Hant-TW",
             alternative_language_codes=["zh-CN"],
             enable_automatic_punctuation=True,
             # 熱詞：提高「曼波」相關詞的辨識權重

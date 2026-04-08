@@ -29,7 +29,7 @@ def _get_recorder():
     return _sync_recorder
 
 # 音訊目錄從 config.py 讀取（路徑由 .env 的 AUDIO_BASE_DIR / VOICE_DIR 提供）
-from config import AUDIO_BASE_DIR, VOICE_DIR
+from config import AUDIO_BASE_DIR, VOICE_DIR, GOOGLE_CREDENTIALS_PATH
 VOICE_MAP_FILE = os.path.join(VOICE_DIR, "map.zh-CN.json")
 
 # 音频文件映射（将合并 voice 映射）
@@ -406,20 +406,46 @@ def play_voice_text(text: str):
     _last_voice_time = current_time
     _play_tts_fallback(text)
 
+def _wavenet_tts(text: str) -> bytes | None:
+    """
+    呼叫 Google Cloud TTS WaveNet（cmn-TW-Wavenet-A），回傳 PCM16 24kHz bytes。
+    使用服務帳號憑證，消耗 Google Cloud 試用金。
+    """
+    try:
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = GOOGLE_CREDENTIALS_PATH
+        from google.cloud import texttospeech
+        client = texttospeech.TextToSpeechClient()
+        response = client.synthesize_speech(
+            input=texttospeech.SynthesisInput(text=text),
+            voice=texttospeech.VoiceSelectionParams(
+                language_code="cmn-TW",
+                name="cmn-TW-Wavenet-A",
+            ),
+            audio_config=texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                sample_rate_hertz=24000,
+            ),
+        )
+        # response.audio_content 為含 WAV header 的 bytes，跳過 44-byte header 取 PCM
+        return response.audio_content[44:]
+    except Exception as e:
+        print(f"[AUDIO TTS] WaveNet TTS 失敗: {e}", flush=True)
+        return None
+
+
 def _play_tts_fallback(text: str) -> None:
     """
-    在背景執行緒中呼叫 Gemini TTS，將結果重採樣後放入播放佇列。
-    - Gemini TTS 回傳 PCM16 24kHz → audioop 重採樣至 8kHz
+    在背景執行緒中呼叫 Google Cloud TTS WaveNet，將結果重採樣後放入播放佇列。
+    - WaveNet 回傳 PCM16 24kHz → audioop 重採樣至 8kHz
     - 整個過程在 daemon thread 中執行，不阻塞呼叫者
     """
     def _worker():
         try:
             import audioop
-            from omni_client import _call_tts
 
-            pcm24k: bytes | None = _call_tts(text, voice="Leda")
+            pcm24k: bytes | None = _wavenet_tts(text)
             if not pcm24k:
-                print(f"[AUDIO TTS] Gemini TTS 回傳空音訊: {text}", flush=True)
+                print(f"[AUDIO TTS] WaveNet TTS 回傳空音訊: {text}", flush=True)
                 return
 
             # 24kHz 單聲道 → 8kHz（與預錄 WAV 相同格式）
@@ -430,7 +456,7 @@ def _play_tts_fallback(text: str) -> None:
             _audio_priority += 1
             try:
                 _audio_queue.put_nowait((_audio_priority, pcm8k))
-                print(f"[AUDIO TTS] 動態語音已加入佇列: {text}", flush=True)
+                print(f"[AUDIO TTS] WaveNet 語音已加入佇列: {text}", flush=True)
             except queue.Full:
                 print(f"[AUDIO TTS] 佇列已滿，丟棄: {text}", flush=True)
 

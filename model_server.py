@@ -31,7 +31,7 @@ HOST = os.getenv("MODEL_SERVER_HOST", "127.0.0.1")
 PORT = int(os.getenv("MODEL_SERVER_PORT", "9099"))
 
 _models: dict = {}
-_inference_lock: asyncio.Lock = None  # 在 event loop 啟動後建立
+_inference_locks: dict = {}  # 每個模型各自一把鎖，不同模型可並行推論
 
 OBSTACLE_WHITELIST = [
     'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
@@ -91,6 +91,13 @@ def _load_models() -> bool:
 
     logger.info(f"模型載入完成，共 {len(_models)} 個：{list(_models.keys())}")
     return len(_models) > 0
+
+
+def _init_locks():
+    """為每個已載入的模型建立各自的推論鎖（必須在 event loop 內呼叫）"""
+    global _inference_locks
+    _inference_locks = {name: asyncio.Lock() for name in _models}
+    logger.info(f"推論鎖已建立：{list(_inference_locks.keys())}")
 
 
 def _run_inference(req: dict) -> list:
@@ -156,10 +163,21 @@ async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWri
             data   = await reader.readexactly(length)
             req    = pickle.loads(data)
 
-            # GPU 推論序列化（同一時間只有一個推論在跑）
-            async with _inference_lock:
-                loop   = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, _run_inference, req)
+            model_name = req.get("model", "unknown")
+            lock = _inference_locks.get(model_name)
+            loop = asyncio.get_event_loop()
+
+            if lock is None:
+                # 找不到對應模型，直接回傳空
+                result = []
+            elif lock.locked():
+                # 同一模型正在被另一台裝置使用 → 跳過此幀，回傳空讓呼叫方用快取
+                logger.debug(f"[{model_name}] 推論中，跳過此幀（呼叫方將使用快取結果）")
+                result = []
+            else:
+                # 取得鎖，執行推論
+                async with lock:
+                    result = await loop.run_in_executor(None, _run_inference, req)
 
             resp = pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
             writer.write(struct.pack(">I", len(resp)) + resp)
@@ -177,8 +195,7 @@ async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWri
 
 
 async def _main():
-    global _inference_lock
-    _inference_lock = asyncio.Lock()
+    global _inference_locks
 
     logger.info("開始載入模型（可能需要 1-2 分鐘）...")
     loop = asyncio.get_event_loop()
@@ -186,6 +203,8 @@ async def _main():
     if not ok:
         logger.error("沒有可用模型，退出")
         return
+
+    _init_locks()  # 模型載入完成後，為每個模型建立各自的推論鎖
 
     server = await asyncio.start_server(_handle_client, HOST, PORT)
     logger.info(f"ModelServer 就緒，監聽 {HOST}:{PORT}")

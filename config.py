@@ -54,6 +54,13 @@ GOOGLE_CREDENTIALS_PATH: str = os.environ.get(
     os.path.join(_PROJECT_ROOT, "google_Speech_to_Text.json"),
 )
 
+# Google Cloud Vertex AI 設定
+GCP_PROJECT_ID: str  = os.environ.get("GCP_PROJECT_ID", "")
+GCP_LOCATION: str    = os.environ.get("GCP_LOCATION", "us-central1")
+# USE_VERTEX_AI=true  → Vertex AI 優先，試用金耗盡後自動切回 AI Studio 16-Key 輪換
+# USE_VERTEX_AI=false → 直接使用 AI Studio（強制模式）
+USE_VERTEX_AI: bool  = os.environ.get("USE_VERTEX_AI", "true").lower() == "true"
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 模型路徑（預設為相對路徑 model/，可在 .env 覆寫為絕對路徑）
 # ═══════════════════════════════════════════════════════════════════════════════

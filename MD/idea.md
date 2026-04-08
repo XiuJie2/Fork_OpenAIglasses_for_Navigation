@@ -183,6 +183,90 @@ return cleanBase.replaceFirst(RegExp(r'^https?://'), '$wsSchemeToUse://') + path
 
 ---
 
+## Vertex AI 整合（已實作，2026-04-09）
+
+### 策略：Vertex AI 優先，試用金耗盡自動切回 AI Studio 16-Key 輪換
+
+**已完成**：
+- `config.py`：新增 `GCP_PROJECT_ID`、`GCP_LOCATION`、`USE_VERTEX_AI` 三個設定項
+- `omni_client.py`：
+  - 新增 Vertex AI 客戶端 lazy init（`_get_vertex_client()`）
+  - 新增自動切換旗標 `_VERTEX_EXHAUSTED`，配額耗盡時自動切回 AI Studio
+  - `_call_flash()` / `_call_flash_long()` / `_stream_flash_sync()`：全部 Vertex 優先
+  - **`_call_tts()` 完全不動**，繼續走 AI Studio（保留 Gemini TTS 音質）
+- `audio_player.py`：WaveNet TTS 備援（`_wavenet_tts` / `_play_tts_fallback`）早已實作完畢
+- `gemini_scene_describer.py`：不需改動，自動受惠於 `_call_flash()` 的切換邏輯
+
+**需使用者補充 `.env`**：
+```
+GCP_PROJECT_ID=你的 GCP 專案 ID
+GCP_LOCATION=us-central1
+USE_VERTEX_AI=true
+```
+> 注意：若 `GCP_PROJECT_ID` 留空，系統自動走 AI Studio，不報錯
+
+**自動切換條件**：
+- Vertex AI 遇 `resource_exhausted` / `quota` / `billing` / 429 相關錯誤 → 切回 AI Studio
+- 切換後印出：`[Gemini] Vertex AI 試用金耗盡，自動切換回 AI Studio（16-Key 輪換）`
+
+---
+
+## 預錄語音升級：Chirp3-HD 重新生成（待實作）
+
+### 背景（2026-04-08）
+- `voice/` 資料夾約 80 個預錄 WAV，來自原大陸專案，簡體中文、品質不一
+- 即時 TTS fallback 已改用 `cmn-TW-Wavenet-A`（速度快，台灣口音）
+- Google Cloud TTS 的台灣中文最高只有 WaveNet，**Chirp3-HD 只支援 `cmn-CN`（大陸口音）**
+
+### 決策
+- 預錄檔可用 `cmn-CN-Chirp3-HD-Aoede`（女聲）離線批次重新生成，品質最佳
+- 即時 fallback 維持 `cmn-TW-Wavenet-A`（台灣口音 + 速度快）
+
+### 待確認（實作前需與使用者確認）
+- 文字是否同步轉繁體中文（簡→繁）？
+- 口音是大陸腔可以接受嗎？
+
+### 實作方式
+讀取 `voice/map.zh-CN.json` 的所有 key，逐一呼叫 Google Cloud TTS Chirp3-HD 生成，
+直接覆蓋 `voice/` 對應的 WAV 檔，並更新 `duration_ms`。
+
+```python
+# 關鍵參數
+voice = texttospeech.VoiceSelectionParams(
+    language_code="cmn-CN",
+    name="cmn-CN-Chirp3-HD-Aoede",  # 女聲，最高品質
+)
+audio_config = texttospeech.AudioConfig(
+    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+    sample_rate_hertz=24000,
+)
+```
+
+---
+
+## 已知限制與地雷（必讀，避免重蹈）
+
+### Gemini TTS（`gemini-2.5-flash-preview-tts`）已知限制
+
+**查明日期**：2026-04-09
+
+| 輸入類型 | 結果 | 原因 |
+|---------|------|------|
+| 導航陳述句（≥5字，如「前方有斑馬線，請注意。」） | 正常 | 模型判定為「需朗讀的文字」 |
+| 極短打招呼（如「你好。」，≤4字） | 400 錯誤 | 模型誤判為對話，想生成文字回應而非音訊 |
+| 問句（如「請問有什麼需要幫助？」） | 400 錯誤 | 同上 |
+| 加 `systemInstruction` 欄位 | 500 錯誤 | TTS preview 模型不支援此欄位 |
+
+**為什麼目前系統不受影響**：
+- AI 對話回覆由 `_merge_short_sentences()` 確保 ≥5 字才送 TTS
+- 導航提示走 WaveNet（`audio_player._wavenet_tts`），完全不走 Gemini TTS
+
+**未來注意**：
+- 若要新增系統短句播報（如「好的」、「收到」），**必須走 WaveNet**，不能走 Gemini TTS
+- 任何修改 `_call_tts` 的方案都要先直接打 API 驗證，不能只測周邊邏輯
+
+---
+
 ## 安全性待改善（選擇性）
 
 ### `/device/N/` 攝影機畫面仍然公開
