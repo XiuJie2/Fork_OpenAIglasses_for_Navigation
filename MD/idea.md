@@ -73,6 +73,39 @@
 
 ## Bug 修復記錄
 
+### 多裝置連線：音訊 WS 踢出 / 切換裝置後避障失效（已修復）
+
+**症狀 1**：裝置2 APP 連上後，裝置1 的音訊連線被踢出
+**症狀 2**：APP 重連（不重啟伺服器）後，避障語音指令失效，需重啟 APP 才正常
+**症狀 3**：裝置2 (`/device/2/`) 的 APP 連上，避障完全打不開
+
+**根本原因 1：音訊 WS 未拒絕重複連線（app_main.py）**
+- 相機 WS 有入口防護（`if esp32_camera_ws is not None: close 1013`）
+- 但 `ws_audio` 直接 `esp32_audio_ws = ws`，不檢查是否已有連線
+- 結果：新裝置連線 → 舊連線的 handler 仍在跑 → 舊 handler 的 `stop_rec()` 呼叫 `set_current_recognition(None)` → 清掉新連線剛建立的 ASR → 語音指令完全失效
+
+**修復**：`app_main.py` 的 `ws_audio` 加入與相機 WS 相同的拒絕邏輯：
+```python
+if esp32_audio_ws is not None:
+    await ws.close(code=1013)
+    return
+```
+
+**根本原因 2：start_multi_device.py 兩台間只等 2 秒，YOLO 模型載入需 30-60 秒**
+- 裝置1 和裝置2 的 YOLO 模型幾乎同時載入 GPU，VRAM 不足導致裝置2 模型載入失敗
+- `orchestrator = None` → 避障按下顯示「导航系统未就绪」
+
+**修復（方案B）**：新增共用模型推論伺服器架構：
+- `model_server.py`：獨立 process，載入所有 YOLO 模型一次，透過 TCP port 9099 提供推論
+- `model_client.py`：`RemoteYOLO` / `RemoteObstacleDetector` proxy，介面與原 YOLO 相同
+- `app_main.py`：偵測到 `MODEL_SERVER_PORT` env var 時使用 proxy，不載入本機模型
+- `start_multi_device.py`：預設先啟動 `model_server.py` 並等待就緒，再同時啟動 4 個 instance
+
+啟動方式不變：`uv run python start_multi_device.py`
+
+---
+
+
 ### APP 導航無法啟動（已修復）
 
 **症狀**：

@@ -168,6 +168,17 @@ def load_navigation_models():
     """加载盲道导航所需的模型"""
     global yolo_seg_model, obstacle_detector
 
+    # ── 共用模型伺服器模式（MODEL_SERVER_PORT 有設定時）──────────────────────
+    if os.getenv("MODEL_SERVER_PORT"):
+        try:
+            from model_client import RemoteYOLO, RemoteObstacleDetector
+            yolo_seg_model   = RemoteYOLO("yolo-seg")
+            obstacle_detector = RemoteObstacleDetector()
+            print(f"[NAVIGATION] 共用模型伺服器模式：localhost:{os.getenv('MODEL_SERVER_PORT')}", flush=True)
+        except Exception as e:
+            print(f"[NAVIGATION] 無法連接模型伺服器，回退到本機模式: {e}", flush=True)
+        return
+
     try:
         from config import BLIND_PATH_MODEL
         seg_model_path = BLIND_PATH_MODEL
@@ -1130,6 +1141,9 @@ _audio_bypass_mode = False
 @app.websocket("/ws_audio")
 async def ws_audio(ws: WebSocket):
     global esp32_audio_ws, _audio_bypass_mode
+    if esp32_audio_ws is not None:
+        await ws.close(code=1013)
+        return
     esp32_audio_ws = ws
     await ws.accept()
     print("\n[AUDIO] client connected")

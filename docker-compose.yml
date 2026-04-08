@@ -56,6 +56,47 @@ services:
       retries: 3
       start_period: 40s
 
+  aiglass-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aiglass-2
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+      - "12346:12345/udp"
+    environment:
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - BLIND_PATH_MODEL=${BLIND_PATH_MODEL:-model/yolo-seg.pt}
+      - OBSTACLE_MODEL=${OBSTACLE_MODEL:-model/yoloe-11l-seg.pt}
+      - YOLOE_MODEL_PATH=${YOLOE_MODEL_PATH:-model/yoloe-11l-seg.pt}
+      - ENABLE_TTS=${ENABLE_TTS:-true}
+      - TTS_INTERVAL_SEC=${TTS_INTERVAL_SEC:-1.0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SERVER_PORT=8082
+      - DEVICE_ID=glasses_02
+    volumes:
+      - ./model:/app/model:ro
+      - ./recordings:/app/recordings
+      - ./music:/app/music:ro
+      - ./voice:/app/voice:ro
+      - ./static:/app/static:ro
+      - ./templates:/app/templates:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    network_mode: bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   # 可选：添加 Redis 用于缓存
   # redis:
   #   image: redis:7-alpine
