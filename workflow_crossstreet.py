@@ -1187,29 +1187,43 @@ class CrossStreetNavigator:
     def _speech_for_obstacle(self, name: str,
                               center_x: float = 0.0, center_y: float = 0.0,
                               img_w: int = 640, img_h: int = 480) -> str:
-        """生成障礙物語音提示，方向依 APP 設定的 position_mode 播報"""
-        # 計算方向（時鐘 / 前後左右）
-        try:
-            from app_main import _position_mode
-        except Exception:
-            _position_mode = "cardinal"
-        from position_reporter import get_position_label
-        direction = get_position_label(center_x, center_y, img_w, img_h, _position_mode)
+        """生成障礙物語音提示，使用「前方/左側/右側」三分法匹配預錄音檔
+
+        避障語音一律使用 cardinal 方向，以匹配預錄音檔。
+        時鐘報位法保留給場景描述與尋物功能使用。
+        """
+        # 計算方向（三分法）
+        ratio = center_x / img_w if img_w > 0 else 0.5
+        if ratio < 0.35:
+            direction = "左側"
+        elif ratio > 0.65:
+            direction = "右側"
+        else:
+            direction = "前方"
 
         k = (name or '').strip().lower()
-        # 需要「停一下」的動態障礙物
-        stop_classes = {'bicycle', 'motorcycle', 'bus', 'truck', 'scooter', 'stroller', 'dog', 'animal'}
-        if k == 'person':   return f"{direction}有人，注意避讓。"
-        if k == 'car':      return f"{direction}有車，注意避讓。"
-        if k in stop_classes:
-            cn_map = {
-                'bicycle': '自行車', 'motorcycle': '摩托車', 'bus': '公車',
-                'truck': '卡車', 'scooter': '電動車', 'stroller': '嬰兒車',
-                'dog': '狗', 'animal': '動物',
-            }
-            cn = cn_map.get(k, name)
-            return f"{direction}有{cn}，停一下。"
-        return f"{direction}有障礙物，注意避讓。"
+        if direction in ("左側", "右側"):
+            opposite = "右" if direction == "左側" else "左"
+            if k == 'person':
+                return f"{direction}有人請向{opposite}避開"
+            elif k in ('car', 'truck'):
+                return f"{direction}有車請向{opposite}避開"
+            else:
+                return f"{direction}有障礙請向{opposite}避開"
+        else:  # 前方
+            if k == 'person':
+                # 人偏左 → 建議往右移；人偏右 → 建議往左移
+                return "前方有人可往右移" if ratio < 0.5 else "前方有人可往左移"
+            elif k in ('car', 'truck'):
+                return "前方有車請稍等"
+            elif k in ('motorcycle', 'scooter', 'bicycle'):
+                return "前方有機車請稍等"
+            elif k == 'bus':
+                return "前方有公車請稍等"
+            elif k in ('animal', 'dog'):
+                return "前方有動物請小心"
+            else:
+                return "前方有障礙物請往右繞行"
 
     def process_frame(self, bgr_image: np.ndarray) -> CrossStreetResult:
         """处理单帧图像（每帧分割；若失败，用光流追踪上一帧掩码保持可视化与导航）"""

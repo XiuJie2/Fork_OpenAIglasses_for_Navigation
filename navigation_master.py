@@ -532,8 +532,10 @@ class NavigationMaster:
                         color_changed = (tl_major != self._tl_last_announced)
                         enough_interval = (now - self._tl_announce_ts) >= 5.0
                         # 障礙物語音優先（priority=100），不覆蓋
-                        # 障礙物關鍵字：前方有、左侧有、右侧有、停一下、注意避让
-                        _OBS_KWS = ('前方有', '左侧有', '右侧有', '停一下', '注意避让')
+                        # 障礙物關鍵字（繁體+簡體相容）
+                        _OBS_KWS = ('前方有', '左側有', '右側有', '左侧有', '右侧有',
+                                    '避開', '請稍等', '請小心', '繞行', '可往',
+                                    '停一下', '注意避让')
                         has_obstacle = any(kw in say for kw in _OBS_KWS)
                         if (color_changed or enough_interval) and not has_obstacle:
                             say = tl_voice

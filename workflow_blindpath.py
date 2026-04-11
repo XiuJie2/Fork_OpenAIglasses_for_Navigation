@@ -430,7 +430,9 @@ class BlindPathNavigator:
             return 0
         
         # 障碍物播报 - 最高优先级
-        obstacle_keywords = ['前方有', '左侧有', '右侧有', '停一下', '注意避让', '障碍物']
+        obstacle_keywords = ['前方有', '左側有', '右側有', '左侧有', '右侧有',
+                             '避開', '請稍等', '請小心', '繞行', '可往',
+                             '停一下', '注意避让', '障碍物', '障礙物']
         for keyword in obstacle_keywords:
             if keyword in guidance_text:
                 return 100
@@ -2121,24 +2123,17 @@ class BlindPathNavigator:
     
     @staticmethod
     def _obstacle_direction(center_x: float, image_width: float, center_y: float = 0, image_height: float = 480) -> str:
-        """根據障礙物在畫面中的水平位置判斷方向，支援 clock/cardinal 兩種模式"""
-        try:
-            from app_main import _position_mode
-        except ImportError:
-            _position_mode = "cardinal"
+        """根據障礙物在畫面中的水平位置判斷方向
 
-        if _position_mode == "clock":
-            # 時鐘方向：複用 position_reporter 的邏輯
-            from position_reporter import bbox_center_to_clock
-            return bbox_center_to_clock(center_x, center_y, int(image_width), int(image_height))
-        else:
-            # cardinal 模式：左側/右側/前方
-            ratio = center_x / image_width if image_width > 0 else 0.5
-            if ratio < 0.35:
-                return "左側"
-            elif ratio > 0.65:
-                return "右側"
-            return "前方"
+        避障語音一律使用「前方/左側/右側」三分法，以匹配預錄音檔。
+        時鐘報位法保留給場景描述與尋物功能使用。
+        """
+        ratio = center_x / image_width if image_width > 0 else 0.5
+        if ratio < 0.35:
+            return "左側"
+        elif ratio > 0.65:
+            return "右側"
+        return "前方"
 
     def _check_and_set_obstacle_voice(self, obstacles):
         """检查障碍物并设置待播报的语音（含方向）"""
@@ -2192,8 +2187,10 @@ class BlindPathNavigator:
                 self.last_obstacle_speech = speech_key
                 self.last_obstacle_speech_time = current_time
                 self.last_obstacle_area_ratio = area_ratio
+                cx_ratio = center_x / img_w if img_w > 0 else 0.5
                 self.pending_obstacle_voice = self._speech_for_obstacle_dir(
-                    obstacle_name, direction, area_ratio, bottom_y_ratio)
+                    obstacle_name, direction, area_ratio, bottom_y_ratio,
+                    center_x_ratio=cx_ratio)
         else:
             # 沒有近距離障礙物 → 重置所有追蹤狀態
             self.last_obstacle_speech = ""
@@ -2733,25 +2730,41 @@ class BlindPathNavigator:
             return '障碍物'
 
     def _speech_for_obstacle(self, name: str, area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
-        """障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
-        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
-        k = (name or '').strip().lower()
-        if k in DYNAMIC_CLASS_NAMES:
-            cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"前方有{cn}，{suffix}"
-        size = _obstacle_size_label(area_ratio)
-        return f"前方有{size}障礙物，{suffix}"
+        """障礙物語音（前方固定），產生可匹配預錄音檔的文字"""
+        return self._speech_for_obstacle_dir(name, "前方", area_ratio, bottom_y_ratio)
 
     def _speech_for_obstacle_dir(self, name: str, direction: str = "前方",
-                                  area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
-        """帶方向的障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
-        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
+                                  area_ratio: float = 0, bottom_y_ratio: float = 0,
+                                  center_x_ratio: float = 0.5) -> str:
+        """帶方向的障礙物語音，產生可匹配預錄音檔的繁體中文提示
+
+        語音設計：告訴使用者「哪裡有什麼」＋「該怎麼做」，而非只說「注意」。
+        center_x_ratio：障礙物在畫面中的水平位置（0=最左, 1=最右），
+                        用於「前方有人」時建議往空曠側移動。
+        """
         k = (name or '').strip().lower()
-        if k in DYNAMIC_CLASS_NAMES:
-            cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"{direction}有{cn}，{suffix}"
-        size = _obstacle_size_label(area_ratio)
-        return f"{direction}有{size}障礙物，{suffix}"
+        if direction in ("左側", "右側"):
+            opposite = "右" if direction == "左側" else "左"
+            if k == 'person':
+                return f"{direction}有人請向{opposite}避開"
+            elif k in ('car', 'truck'):
+                return f"{direction}有車請向{opposite}避開"
+            else:
+                return f"{direction}有障礙請向{opposite}避開"
+        else:  # 前方
+            if k == 'person':
+                # 人偏左 → 建議往右移；人偏右 → 建議往左移
+                return "前方有人可往右移" if center_x_ratio < 0.5 else "前方有人可往左移"
+            elif k in ('car', 'truck'):
+                return "前方有車請稍等"
+            elif k in ('motorcycle', 'scooter', 'bicycle'):
+                return "前方有機車請稍等"
+            elif k == 'bus':
+                return "前方有公車請稍等"
+            elif k in ('animal', 'dog'):
+                return "前方有動物請小心"
+            else:
+                return "前方有障礙物請往右繞行"
 
     def _draw_command_button(self, image, text):
         """绘制底部中央的指令按钮（与斑马线模式统一）"""
@@ -3427,25 +3440,41 @@ class BlindPathNavigator:
         return stabilized
   
     def _speech_for_obstacle(self, name: str, area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
-        """障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
-        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
-        k = (name or '').strip().lower()
-        if k in DYNAMIC_CLASS_NAMES:
-            cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"前方有{cn}，{suffix}"
-        size = _obstacle_size_label(area_ratio)
-        return f"前方有{size}障礙物，{suffix}"
+        """障礙物語音（前方固定），產生可匹配預錄音檔的文字"""
+        return self._speech_for_obstacle_dir(name, "前方", area_ratio, bottom_y_ratio)
 
     def _speech_for_obstacle_dir(self, name: str, direction: str = "前方",
-                                  area_ratio: float = 0, bottom_y_ratio: float = 0) -> str:
-        """帶方向的障礙物語音：動態物體報名稱，靜態物體報大小，語尾隨距離變化"""
-        _level, suffix = _obstacle_urgency(bottom_y_ratio, area_ratio)
+                                  area_ratio: float = 0, bottom_y_ratio: float = 0,
+                                  center_x_ratio: float = 0.5) -> str:
+        """帶方向的障礙物語音，產生可匹配預錄音檔的繁體中文提示
+
+        語音設計：告訴使用者「哪裡有什麼」＋「該怎麼做」，而非只說「注意」。
+        center_x_ratio：障礙物在畫面中的水平位置（0=最左, 1=最右），
+                        用於「前方有人」時建議往空曠側移動。
+        """
         k = (name or '').strip().lower()
-        if k in DYNAMIC_CLASS_NAMES:
-            cn = _OBSTACLE_NAME_CN.get(k, '移動物體')
-            return f"{direction}有{cn}，{suffix}"
-        size = _obstacle_size_label(area_ratio)
-        return f"{direction}有{size}障礙物，{suffix}"
+        if direction in ("左側", "右側"):
+            opposite = "右" if direction == "左側" else "左"
+            if k == 'person':
+                return f"{direction}有人請向{opposite}避開"
+            elif k in ('car', 'truck'):
+                return f"{direction}有車請向{opposite}避開"
+            else:
+                return f"{direction}有障礙請向{opposite}避開"
+        else:  # 前方
+            if k == 'person':
+                # 人偏左 → 建議往右移；人偏右 → 建議往左移
+                return "前方有人可往右移" if center_x_ratio < 0.5 else "前方有人可往左移"
+            elif k in ('car', 'truck'):
+                return "前方有車請稍等"
+            elif k in ('motorcycle', 'scooter', 'bicycle'):
+                return "前方有機車請稍等"
+            elif k == 'bus':
+                return "前方有公車請稍等"
+            elif k in ('animal', 'dog'):
+                return "前方有動物請小心"
+            else:
+                return "前方有障礙物請往右繞行"
 
     def _update_obstacle_properties(self, obs, H, W):
         """更新障碍物的派生属性"""

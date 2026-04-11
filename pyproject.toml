@@ -32,6 +32,7 @@ dependencies = [
     "psutil>=5.9.0",
     "google-cloud-texttospeech>=2.34.0",
     "google-genai",
+    "huggingface-hub>=1.10.1",
 ]
 
 [[tool.uv.index]]

@@ -344,7 +344,7 @@ def play_voice_text(text: str):
     传入中文提示，自动匹配 voice 映射并播放。
     - 尝试原文
     - 尝试补全/去除句末标点（。.!！?？）
-    - 若包含“前方有…注意避让”但未命中，降级到“前方有障碍物，注意避让。”
+    - 若包含"前方有…注意避让"但未命中，降级到"前方有障碍物，注意避让。"
     """
     global _last_voice_time, _last_voice_text
     
@@ -378,7 +378,28 @@ def play_voice_text(text: str):
             _last_voice_time = current_time
             return
 
-    # 针对“前方有…注意避让”降级
+    # 繁體避障語音降級：未精確命中時，依方向降級到通用版本
+    if "\u6709" in t and ("\u907f\u958b" in t or "\u8acb\u7a0d\u7b49" in t or "\u8acb\u5c0f\u5fc3" in t or "\u7e5e\u884c" in t or "\u53ef\u5f80" in t):
+        # 左側/右側 → 降級到「有障礙請向X避開」
+        for side, opp in [("左側", "右"), ("右側", "左")]:
+            if t.startswith(side):
+                fallback = f"{side}有障礙請向{opp}避開"
+                if fallback in AUDIO_MAP:
+                    play_audio_threadsafe(fallback)
+                    _last_voice_text = text
+                    _last_voice_time = current_time
+                    return
+                break
+        # 前方 → 降級到「前方有障礙物請往右繞行」
+        if t.startswith("前方"):
+            fallback = "前方有障礙物請往右繞行"
+            if fallback in AUDIO_MAP:
+                play_audio_threadsafe(fallback)
+                _last_voice_text = text
+                _last_voice_time = current_time
+                return
+
+    # 簡體避障語音降級（相容舊版語音檔）
     if ("前方有" in t) and ("注意避让" in t):
         fallback = "前方有障碍物，注意避让。"
         if fallback in AUDIO_MAP:
@@ -387,7 +408,7 @@ def play_voice_text(text: str):
             _last_voice_time = current_time
             return
 
-    # 针对“请向…平移/微调/转动”类词条，常见变体尝试
+    # 针对"请向…平移/微调/转动"类词条，常见变体尝试
     base = t.rstrip("。.!！?？")
     if base in AUDIO_MAP:
         play_audio_threadsafe(base)

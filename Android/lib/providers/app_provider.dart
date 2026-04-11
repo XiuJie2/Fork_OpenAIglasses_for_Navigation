@@ -19,6 +19,7 @@ import '../services/contacts_service.dart';
 import '../services/places_service.dart';
 import '../services/gps_navigation_service.dart';
 import '../services/emergency_notification_service.dart';
+import '../services/voice_cache_service.dart';
 
 class AppProvider extends ChangeNotifier {
   // ── 伺服器設定 ──────────────────────────────────────────────────────────
@@ -124,14 +125,18 @@ class AppProvider extends ChangeNotifier {
 
   /// 公開語音播報方法（視障者模式 BlindScreen 使用）
   /// TalkBack 開啟時透過 SemanticsService 播報（避免音訊衝突）
-  /// TalkBack 關閉時使用 flutter_tts 直接播報
+  /// TalkBack 關閉時優先播放預載快取，未命中才用 flutter_tts
   Future<void> speak(String text) async {
     if (_isTalkBackOn) {
       SemanticsService.announce(text, TextDirection.ltr);
     } else {
       if (!_ttsEnabled) return;   // 使用者關閉 APP 語音時靜音
-      await _tts.stop();
-      await _tts.speak(text);
+      // 優先嘗試快取音檔（延遲更低）
+      final hit = await VoiceCacheService.instance.speak(text);
+      if (!hit) {
+        await _tts.stop();
+        await _tts.speak(text);
+      }
     }
   }
 
@@ -172,6 +177,9 @@ class AppProvider extends ChangeNotifier {
 
     await _tts.setLanguage('zh-TW');
     await _tts.setSpeechRate(_ttsSpeechRate);
+
+    // 背景預載固定語音快取（不阻塞啟動流程）
+    VoiceCacheService.instance.init(_tts);
 
     await loadContacts();
     await loadPlaces();
@@ -507,6 +515,8 @@ class AppProvider extends ChangeNotifier {
       }
       return;
     }
+    // 伺服器每 30 秒發送的保活訊號，不顯示在訊息記錄中
+    if (msg == 'PING') return;
     _addMessage(msg);
     _checkEmergencyCall(msg);
   }
@@ -516,6 +526,9 @@ class AppProvider extends ChangeNotifier {
     if (_messages.length > 100) _messages.removeAt(0);
     notifyListeners();
   }
+
+  /// 公開方法：讓各畫面寫入 DEBUG 訊息記錄
+  void addDebugMessage(String msg) => _addMessage(msg);
 
   // ── 緊急連絡人（本機）─────────────────────────────────────────────────────
   Future<void> loadContacts() async {

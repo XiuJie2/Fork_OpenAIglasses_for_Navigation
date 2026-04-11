@@ -81,6 +81,38 @@ async def test():
 asyncio.run(test())
 ```
 
+## Google 服務優先級（必遵守）
+
+**Google Cloud 試用金永遠優先，API Key 永遠備用。**
+
+所有 Google 相關服務都遵循同一模式：
+1. **主力**：Google Cloud（服務帳號憑證，消耗試用金）
+2. **備用**：Gemini AI Studio（免費 API Key 輪換）
+3. 只有試用金耗盡或 GCP 請求失敗時，才降級到 API Key
+
+適用範圍：
+- TTS：Google Cloud WaveNet 優先 → Gemini TTS 備用
+- LLM：Vertex AI 優先 → AI Studio 16-Key 輪換備用
+- ASR：Google Cloud Speech-to-Text（目前無備用）
+
+**禁止**：因為 API Key「免費」就優先使用，試用金才是主力。
+
+## YOLO 訓練地雷（必遵守）
+
+1. **Windows 中文路徑禁令**：PyTorch `torch.save()` 在 Windows 無法處理中文路徑。
+   - 訓練腳本的 `project=` 輸出路徑**必須是純 ASCII**（如 `runs/`）
+   - 資料集、腳本放中文目錄沒事，但訓練輸出不行
+   - 違反後果：訓練跑完卻存檔失敗，白費數小時
+
+2. **訓練前必做**：啟動長時間訓練前，先用 1 epoch 測試存檔是否正常
+   ```python
+   # 先跑 1 epoch 確認存檔沒問題
+   model.train(data=..., epochs=1, project="runs/test_save")
+   # 確認 runs/test_save/weights/last.pt 存在後再正式訓練
+   ```
+
+3. **nohup 啟動**：訓練超過 10 分鐘一律用 `nohup` 啟動，避免 timeout 中斷
+
 ## 任何程式碼改動後的通用規則
 
 **改完就測，不等使用者叫。** 每次修改完畢，立即執行對應測試再回報結果。

@@ -512,12 +512,12 @@ async def start_ai_with_text_custom(user_text: str):
             orchestrator.start_crossing()
             print(f"[CROSS_STREET] 过马路模式已启动，状态: {orchestrator.get_state()}")
             # 播放启动语音并广播到UI
-            play_voice_text("过马路模式已启动。")
+            play_voice_text("過馬路模式已啟動")
             await ui_broadcast_final("[系统] 过马路模式已启动")
             await ui_broadcast_raw(f"NAV_STATE:{orchestrator.get_state()}")
         else:
             print("[CROSS_STREET] 警告：导航统领器未初始化！")
-            play_voice_text("启动过马路模式失败，请稍后重试。")
+            play_voice_text("啟動過馬路模式失敗，請稍後重試")
             await ui_broadcast_final("[系统] 导航系统未就绪")
         return
 
@@ -527,7 +527,7 @@ async def start_ai_with_text_custom(user_text: str):
             orchestrator.stop_navigation()
             print(f"[CROSS_STREET] 导航已停止，状态: {orchestrator.get_state()}")
             # 播放停止语音并广播到UI
-            play_voice_text("已停止导航。")
+            play_voice_text("已停止導航")
             await ui_broadcast_final("[系统] 过马路模式已停止")
             await ui_broadcast_raw(f"NAV_STATE:{orchestrator.get_state()}")
         # else: orchestrator 未初始化，靜默返回
@@ -586,7 +586,7 @@ async def start_ai_with_text_custom(user_text: str):
             orchestrator.start_blind_path_navigation()
             print(f"[NAVIGATION] 盲道导航已启动，状态: {orchestrator.get_state()}")
             # 播放啟動語音並廣播到 UI
-            play_voice_text("盲道導航已開始。")
+            play_voice_text("盲道導航已開始")
             await ui_broadcast_final("[系统] 盲道导航已启动")
             await ui_broadcast_raw(f"NAV_STATE:{orchestrator.get_state()}")
         else:
