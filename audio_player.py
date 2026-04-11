@@ -593,16 +593,33 @@ def _wavenet_tts(text: str) -> bytes | None:
         return None
 
 
+_tts_semaphore = threading.Semaphore(2)   # 最多 2 條 TTS 執行緒並發
+_tts_last_time  = 0.0                      # 上次 TTS 開始時間
+_TTS_MIN_INTERVAL = 2.0                    # 兩次 TTS 至少間隔 2 秒
+_tts_rate_lock  = threading.Lock()
+
 def _play_tts_fallback(text: str) -> None:
     """
     在背景執行緒中呼叫 Google Cloud TTS WaveNet，將結果重採樣後放入播放佇列。
     - WaveNet 回傳 PCM16 24kHz → audioop 重採樣至 8kHz
-    - 整個過程在 daemon thread 中執行，不阻塞呼叫者
+    - 最多 2 個並發 TTS 執行緒，且每 2 秒只允許 1 次 TTS，避免積壓
     """
+    global _tts_last_time
+
+    # 速率限制：2 秒內已有 TTS → 丟棄
+    with _tts_rate_lock:
+        now = time.time()
+        if now - _tts_last_time < _TTS_MIN_INTERVAL:
+            print(f"[AUDIO TTS] 速率限制，丟棄: {text}", flush=True)
+            return
+        _tts_last_time = now
+
     def _worker():
+        if not _tts_semaphore.acquire(blocking=False):
+            print(f"[AUDIO TTS] 並發上限，丟棄: {text}", flush=True)
+            return
         try:
             import audioop
-
             pcm24k: bytes | None = _wavenet_tts(text)
             if not pcm24k:
                 print(f"[AUDIO TTS] WaveNet TTS 回傳空音訊: {text}", flush=True)
@@ -619,9 +636,10 @@ def _play_tts_fallback(text: str) -> None:
                 print(f"[AUDIO TTS] WaveNet 語音已加入佇列: {text}", flush=True)
             except queue.Full:
                 print(f"[AUDIO TTS] 佇列已滿，丟棄: {text}", flush=True)
-
         except Exception as e:
             print(f"[AUDIO TTS] fallback 失敗: {e}", flush=True)
+        finally:
+            _tts_semaphore.release()
 
     threading.Thread(target=_worker, daemon=True, name="TTS-Fallback").start()
 
