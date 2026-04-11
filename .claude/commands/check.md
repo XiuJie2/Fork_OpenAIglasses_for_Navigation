@@ -113,6 +113,31 @@ asyncio.run(test())
 
 3. **nohup 啟動**：訓練超過 10 分鐘一律用 `nohup` 啟動，避免 timeout 中斷
 
+## voice map / 語音文字改動後必做
+
+**凡是新增、刪除、或改繁簡體 WAV 檔，必須執行以下全域搜尋，確認所有呼叫點都能命中 map：**
+
+```bash
+# 1. 找出所有 play_voice_text / guidance_text 的值
+grep -rn "play_voice_text\|guidance_text\s*=" --include="*.py" . | grep -v ".venv" | grep -v "^.*#"
+
+# 2. 確認有無簡體字殘留（凡是 voice map 已換繁體，呼叫點也必須換）
+grep -rn "guidance_text\s*=\s*\"" --include="*.py" . | grep -v ".venv" | grep "[^\x00-\x7F]"
+```
+
+```python
+# 3. 確認所有重要語音 key 都命中 AUDIO_MAP
+import audio_player
+audio_player._merge_voice_map()
+keys_to_check = [/* 從 generate_voice.py PHRASES 複製 */]
+for k in keys_to_check:
+    stripped = k.rstrip("。！？!?.，,")
+    assert stripped in audio_player.AUDIO_MAP, f"未命中：{stripped}"
+print("全部命中 ✓")
+```
+
+**地雷**：voice map 換繁體後，所有 workflow 的 `guidance_text` 也要同步換成繁體，否則會靜默降級到 TTS fallback（慢 1~2 秒且不易察覺）。
+
 ## 任何程式碼改動後的通用規則
 
 **改完就測，不等使用者叫。** 每次修改完畢，立即執行對應測試再回報結果。

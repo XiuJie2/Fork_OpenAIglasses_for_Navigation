@@ -631,12 +631,12 @@ class BlindPathNavigator:
                 self.crosswalk_ready_announced = True
                 self.crosswalk_ready_time = current_time
             elif stable_color == "green" and not self.green_light_announced:
-                guidance_text = "绿灯稳定，开始通行。"
+                guidance_text = "綠燈穩定，開始通行"
                 self.green_light_announced = True
             elif stable_color == "red":
                 # 红灯时定期提醒
                 if current_time - self.crosswalk_ready_time > 5.0:
-                    guidance_text = "正在等待绿灯…"
+                    guidance_text = "正在等待綠燈"
                     self.crosswalk_ready_time = current_time
                 else:
                     guidance_text = ""
@@ -1442,7 +1442,7 @@ class BlindPathNavigator:
         
         # 对准逻辑
         if self.crosswalk_tracker['alignment_status'] == 'not_aligned':
-            guidance_text = "正在接近斑马线，为您对准方向。"
+            guidance_text = "正在接近斑馬線，為您對準方向"
             self.crosswalk_tracker['alignment_status'] = 'aligning'
         else:
             angle = self.crosswalk_tracker['last_angle']
@@ -1457,7 +1457,7 @@ class BlindPathNavigator:
                 guidance_text = "右移" if center_x_ratio < 0.5 else "左移"
             else:
                 self.crosswalk_tracker['alignment_status'] = 'aligned'
-                guidance_text = "斑马线已对准，继续前行。"
+                guidance_text = "斑馬線已對準，繼續前行"
         
         # 添加数据面板
         data_for_panel = {

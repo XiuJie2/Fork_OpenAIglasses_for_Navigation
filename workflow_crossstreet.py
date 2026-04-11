@@ -1516,7 +1516,7 @@ class CrossStreetNavigator:
                                 
                                 if self.green_light_counter >= GREEN_LIGHT_STABLE_FRAMES:
                                     self.state = STATE_CROSSING
-                                    guidance_text = "绿灯稳定，开始通行。"
+                                    guidance_text = "綠燈穩定，開始通行"
                                     self.green_light_counter = 0
                                     self.crossing_end_announced = False      # 重置过马路结束标志
                                     self.last_crosswalk_seen_time = current_time  # 初始化斑马线检测时间
@@ -1524,7 +1524,7 @@ class CrossStreetNavigator:
                                 else:
                                     # 检测到绿灯但还不稳定，节流播报
                                     if current_time - self.last_waiting_light_time > 3.0:
-                                        guidance_text = "正在等待绿灯…"
+                                        guidance_text = "正在等待綠燈"
                                         self.last_waiting_light_time = current_time
                             else:
                                 self.green_light_counter = 0
@@ -1540,22 +1540,22 @@ class CrossStreetNavigator:
                                     })
                                     # 红灯状态播报（节流）
                                     if current_time - self.last_waiting_light_time > 3.0:
-                                        guidance_text = "正在等待绿灯…"
+                                        guidance_text = "正在等待綠燈"
                                         self.last_waiting_light_time = current_time
                                 else:
                                     # 其他状态（黄灯或未检测到），节流播报
                                     if current_time - self.last_waiting_light_time > 3.0:
-                                        guidance_text = "正在等待绿灯…"
+                                        guidance_text = "正在等待綠燈"
                                         self.last_waiting_light_time = current_time
                         else:
                             # 没有检测到稳定的红绿灯，节流播报
                             if current_time - self.last_waiting_light_time > 3.0:
-                                guidance_text = "正在等待绿灯…"
+                                guidance_text = "正在等待綠燈"
                                 self.last_waiting_light_time = current_time
                     except Exception as e:
                         logger.warning(f"[CROSS_STREET] 红绿灯检测失败: {e}")
                         if current_time - self.last_waiting_light_time > 3.0:
-                            guidance_text = "正在等待绿灯…"
+                            guidance_text = "正在等待綠燈"
                             self.last_waiting_light_time = current_time
                 else:
                     # 无红绿灯模块，直接切换
@@ -1570,7 +1570,7 @@ class CrossStreetNavigator:
                     })
                     if current_time - self.last_guide_time > 2.0:
                         self.state = STATE_CROSSING
-                        guidance_text = "开始通行"
+                        guidance_text = "綠燈穩定，開始通行"
                         self.crossing_end_announced = False          # 重置过马路结束标志
                         self.last_crosswalk_seen_time = current_time # 初始化斑马线检测时间
                         self.last_blindpath_announce_time = 0        # 重置盲道播报时间
@@ -1730,13 +1730,13 @@ class CrossStreetNavigator:
                             self.last_guide_time = current_time
                         # 优先级2：过马路结束提示（斑马线快消失）
                         elif is_almost_done and not self.crossing_end_announced:
-                            guidance_text = "过马路结束，准备上人行道。"
+                            guidance_text = "過馬路結束，準備上人行道"
                             self.crossing_end_announced = True
                             self.last_guide_time = current_time
                         # 优先级3：盲道提示（过马路结束后检测到盲道，可重复播报但节流4秒）
                         elif self.crossing_end_announced and blindpath_mask is not None:
                             if current_time - self.last_blindpath_announce_time > 4.0:
-                                guidance_text = "远处有盲道，继续前行。"
+                                guidance_text = "遠處有盲道，繼續前行"
                                 self.last_blindpath_announce_time = current_time
                                 self.last_guide_time = current_time
                         # 优先级4：障碍物
@@ -1770,13 +1770,13 @@ class CrossStreetNavigator:
                                     self.last_guide_time = current_time
                                 # 优先级2：过马路结束
                                 else:
-                                    guidance_text = "过马路结束，准备上人行道。"
+                                    guidance_text = "過馬路結束，準備上人行道"
                                     self.crossing_end_announced = True
                                     self.last_guide_time = current_time
                         # 播报结束后，检测到盲道则重复播报（节流4秒）
                         elif blindpath_mask is not None:
                             if current_time - self.last_blindpath_announce_time > 4.0:
-                                guidance_text = "远处有盲道，继续前行。"
+                                guidance_text = "遠處有盲道，繼續前行"
                                 self.last_blindpath_announce_time = current_time
                                 self.last_guide_time = current_time
 
