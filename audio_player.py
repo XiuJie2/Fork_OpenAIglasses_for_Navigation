@@ -339,20 +339,158 @@ VOICE_PRIORITY = {
 }
 
 # 新增：根据中文提示文案直接播放（会做轻度规范化与降级）
+import re as _re
+
+# ── 紅綠燈自然語句 → 短格式 WAV key ──────────────────────────────────────────
+_TRAFFIC_LIGHT_MAP = {
+    "红灯": "红灯", "紅燈": "红灯",
+    "绿灯": "绿灯", "綠燈": "绿灯",
+    "黄灯": "黄灯", "黃燈": "黄灯",
+}
+
+def _normalize_traffic_light(text: str):
+    """若文字包含紅/綠/黃燈關鍵字，回傳對應短格式 key，否則回傳 None。"""
+    for kw, key in _TRAFFIC_LIGHT_MAP.items():
+        if kw in text:
+            return key
+    return None
+
+# ── 時鐘方向 → 前方/左側/右側 ─────────────────────────────────────────────────
+_CLOCK_FRONT  = {10, 11, 12, 1, 2}
+_CLOCK_RIGHT  = {2, 3, 4, 5}
+_CLOCK_LEFT   = {7, 8, 9, 10}
+
+def _normalize_clock_direction(text: str):
+    """
+    偵測「N點鐘方向有X，urgency」模式，轉換為可匹配預錄 WAV 的方向式描述。
+    例：「4點鐘方向有人，小心！」→「右側有人請向左避開」
+    """
+    m = _re.search(r'(\d{1,2})點鐘方向有(\S+?)(?:[，,。！]|$)', text)
+    if not m:
+        return None
+    hour = int(m.group(1))
+    obj  = m.group(2)
+
+    # 決定方向
+    if hour in _CLOCK_FRONT:
+        direction = "前方"
+    elif hour in _CLOCK_RIGHT:
+        direction = "右側"
+    elif hour in _CLOCK_LEFT:
+        direction = "左側"
+    else:
+        return None  # 後方暫不處理
+
+    # 決定物件類型
+    obj_l = obj.lower()
+    if "人" in obj_l:
+        obj_key = "person"
+    elif "公車" in obj_l or "巴士" in obj_l:
+        obj_key = "bus"
+    elif "機車" in obj_l or "摩托車" in obj_l or "摩托" in obj_l:
+        obj_key = "motorcycle"
+    elif "自行車" in obj_l or "腳踏車" in obj_l:
+        obj_key = "bicycle"
+    elif "車" in obj_l:
+        obj_key = "car"
+    elif "動物" in obj_l or "狗" in obj_l:
+        obj_key = "dog"
+    else:
+        obj_key = "other"
+
+    # 組合方向式語音（對應 _speech_for_obstacle_dir 邏輯）
+    if direction == "前方":
+        map_table = {
+            "person":     "前方有人可往右移",
+            "car":        "前方有車請稍等",
+            "motorcycle": "前方有機車請稍等",
+            "bicycle":    "前方有機車請稍等",
+            "bus":        "前方有公車請稍等",
+            "dog":        "前方有動物請小心",
+        }
+        return map_table.get(obj_key, "前方有障礙物請往右繞行")
+    elif direction == "右側":
+        map_table = {
+            "person": "右側有人請向左避開",
+            "car":    "右側有車請向左避開",
+        }
+        return map_table.get(obj_key, "右側有障礙請向左避開")
+    else:  # 左側
+        map_table = {
+            "person": "左側有人請向右避開",
+            "car":    "左側有車請向右避開",
+        }
+        return map_table.get(obj_key, "左側有障礙請向右避開")
+
+# ── 應過濾不播報的除錯訊息 ──────────────────────────────────────────────────────
+_SKIP_PHRASES = {
+    "路径特征提取失败", "路徑特征提取失敗", "路径特征提取",
+}
+
+# ── 缺失語音記錄（供日後預錄，存到 voice_missing_log/）──────────────────────────
+_MISSING_LOG_DIR = os.path.join(os.path.dirname(__file__), "voice_missing_log")
+_missing_voice_set: set[str] = set()   # 當次執行期去重，避免同文字重複寫入
+
+def _log_missing_voice(text: str) -> None:
+    """將未命中預錄 WAV 的語音文字記錄到 voice_missing_log/YYYY-MM-DD.txt。
+    部署機執行時自動累積，push 到 GitHub 後由本地 Claude Code 處理並預錄。
+    """
+    import datetime
+    t = text.strip()
+    if not t or t in _missing_voice_set:
+        return
+    _missing_voice_set.add(t)
+    try:
+        os.makedirs(_MISSING_LOG_DIR, exist_ok=True)
+        today = datetime.date.today().isoformat()
+        log_path = os.path.join(_MISSING_LOG_DIR, f"{today}.txt")
+        # 若檔案已有該行則不重複寫入
+        existing: set[str] = set()
+        if os.path.exists(log_path):
+            with open(log_path, "r", encoding="utf-8") as f:
+                existing = {l.strip() for l in f if l.strip()}
+        if t not in existing:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(t + "\n")
+    except Exception:
+        pass  # 記錄失敗不影響主流程
+
 def play_voice_text(text: str):
     """
     传入中文提示，自动匹配 voice 映射并播放。
+    - 正規化：紅綠燈短格式、時鐘方向→方向式、過濾除錯訊息
     - 尝试原文
     - 尝试补全/去除句末标点（。.!！?？）
     - 若包含"前方有…注意避让"但未命中，降级到"前方有障碍物，注意避让。"
     """
     global _last_voice_time, _last_voice_text
-    
+
     if not text:
         return
     if not _initialized:
         initialize_audio_system()
-    
+
+    # ── 過濾除錯訊息，不播報 ──────────────────────────────────────────────────
+    t_stripped = text.strip()
+    if t_stripped in _SKIP_PHRASES:
+        return
+
+    # ── 正規化：紅綠燈自然語句 → 短格式 WAV key ──────────────────────────────
+    tl_key = _normalize_traffic_light(t_stripped)
+    if tl_key and tl_key in AUDIO_MAP:
+        play_audio_threadsafe(tl_key)
+        _last_voice_text = text
+        _last_voice_time = time.time()
+        return
+
+    # ── 正規化：時鐘方向 → 方向式語音（對應現有預錄 WAV）─────────────────────
+    clock_key = _normalize_clock_direction(t_stripped)
+    if clock_key and clock_key in AUDIO_MAP:
+        play_audio_threadsafe(clock_key)
+        _last_voice_text = text
+        _last_voice_time = time.time()
+        return
+
     # 全局节流：相同文本短时间内不重复播放
     current_time = time.time()
     if text == _last_voice_text and current_time - _last_voice_time < _voice_cooldown:
@@ -425,6 +563,7 @@ def play_voice_text(text: str):
     print(f"[AUDIO] 未找到匹配語音，啟動 Gemini TTS: {text}")
     _last_voice_text = text
     _last_voice_time = current_time
+    _log_missing_voice(text)   # 記錄缺失語音供日後預錄
     _play_tts_fallback(text)
 
 def _wavenet_tts(text: str) -> bytes | None:
