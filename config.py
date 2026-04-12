@@ -66,13 +66,13 @@ USE_VERTEX_AI: bool  = os.environ.get("USE_VERTEX_AI", "true").lower() == "true"
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # 盲道分割模型
-BLIND_PATH_MODEL: str = os.getenv("BLIND_PATH_MODEL", "model/yolo-seg.pt")
-# 障礙物偵測模型（YOLO-E 開放詞彙）
-OBSTACLE_MODEL: str = os.getenv("OBSTACLE_MODEL", "model/yoloe-11l-seg.pt")
-# YOLO-E 後端預設路徑（與 OBSTACLE_MODEL 共用同一個檔）
-YOLOE_MODEL_PATH: str = os.getenv("YOLOE_MODEL_PATH", "model/yoloe-11l-seg.pt")
+BLIND_PATH_MODEL: str = os.getenv("BLIND_PATH_MODEL", "model/ALL.pt")
+# 障礙物偵測模型（ALL.pt 含障礙物類別，亦可換回 yoloe-11l-seg.pt）
+OBSTACLE_MODEL: str = os.getenv("OBSTACLE_MODEL", "model/ALL.pt")
+# YOLO-E 後端預設路徑（與 OBSTACLE_MODEL 共用）
+YOLOE_MODEL_PATH: str = os.getenv("YOLOE_MODEL_PATH", "model/ALL.pt")
 # 紅綠燈偵測模型
-TRAFFICLIGHT_MODEL: str = os.getenv("TRAFFICLIGHT_MODEL", "model/trafficlight.pt")
+TRAFFICLIGHT_MODEL: str = os.getenv("TRAFFICLIGHT_MODEL", "model/ALL.pt")
 # 物品識別模型（購物場景）
 SHOPPING_MODEL: str = os.getenv("SHOPPING_MODEL", "model/shoppingbest5.pt")
 # MediaPipe 手部偵測任務檔

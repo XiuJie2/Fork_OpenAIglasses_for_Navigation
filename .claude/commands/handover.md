@@ -1,30 +1,75 @@
 ---
-allowed-tools: Read, Bash(git:*), Bash(python:*)
+allowed-tools: Read, Edit, Bash(git:*), Bash(python:*), Bash(cp:*), Bash(ls:*)
 description: 交接資料更新檢查 + 缺失語音 log 處理
 ---
 
-## 1. 交接資料更新檢查
+## ⚠️ 交接資料同步規則（每次改動必做，不可省略）
+
+**以下檔案修改後，必須立刻同步一份到 `_交接資料/`：**
+
+| 修改的檔案 | 同步指令 |
+|-----------|---------|
+| `.env`（模型路徑、API Key、任何設定）| `cp .env _交接資料/.env` |
+| `Website/.env` | `cp Website/.env _交接資料/Website.env` |
+| `google_Speech_to_Text.json` | `cp google_Speech_to_Text.json _交接資料/` |
+| `Google_Api_Key.json` | `cp Google_Api_Key.json _交接資料/` |
+
+並且更新 `_交接資料/README.md` 中對應的說明（尤其是模型路徑、功能開關異動時）。
+
+**`_交接資料/` 是給別人接手時用的，內容過時 = 別人無法正確啟動系統。**
+
+---
+
+## ⚠️ git pull 後必做：從 `_交接資料/` 還原機密檔到專案
+
+`_交接資料/` 不在 git，由人工在各電腦間傳遞。每次 `git pull` 後，執行以下還原：
 
 ```bash
-# 查看 _交接資料/ 各檔案的最後修改時間
+# 從交接資料還原機密設定到專案根目錄
+cp _交接資料/.env .env
+cp _交接資料/Website.env Website/.env
+cp _交接資料/google_Speech_to_Text.json .
+cp _交接資料/Google_Api_Key.json .
+```
+
+若 `_交接資料/` 不存在（新電腦），需先向原作者取得整個 `_交接資料/` 資料夾（加密傳送）。
+
+### 確認還原後的狀態
+
+```bash
 python -c "
 import os, datetime
-folder = '_交接資料'
-if not os.path.isdir(folder):
-    print('_交接資料/ 不存在')
-else:
-    files = [(f, os.path.getmtime(os.path.join(folder, f))) for f in os.listdir(folder)]
-    files.sort(key=lambda x: -x[1])
-    for fname, mtime in files:
-        dt = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')
-        print(f'{dt}  {fname}')
+pairs = [('.env', '_交接資料/.env'), ('Website/.env', '_交接資料/Website.env')]
+for src, dst in pairs:
+    src_t = os.path.getmtime(src) if os.path.exists(src) else None
+    dst_t = os.path.getmtime(dst) if os.path.exists(dst) else None
+    src_s = datetime.datetime.fromtimestamp(src_t).strftime('%Y-%m-%d %H:%M') if src_t else '不存在'
+    dst_s = datetime.datetime.fromtimestamp(dst_t).strftime('%Y-%m-%d %H:%M') if dst_t else '不存在'
+    in_sync = 'OK' if src_t and dst_t and abs(src_t - dst_t) < 60 else '不同步'
+    print(in_sync, src, src_s, '|', dst, dst_s)
 "
 ```
 
-比對上次檢查時間，若有新的修改必須告知使用者：
-- 哪些檔案更新了
-- 更新時間
-- 建議使用者確認內容有無異動（API Key 更換、新增帳號等）
+---
+
+## 1. 交接資料同步狀態檢查
+
+```bash
+# 比對 .env 最後修改時間（交接資料 vs 主專案）
+python -c "
+import os, datetime
+pairs = [('.env', '_交接資料/.env'), ('Website/.env', '_交接資料/Website.env')]
+for src, dst in pairs:
+    src_t = os.path.getmtime(src) if os.path.exists(src) else None
+    dst_t = os.path.getmtime(dst) if os.path.exists(dst) else None
+    src_s = datetime.datetime.fromtimestamp(src_t).strftime('%Y-%m-%d %H:%M') if src_t else '不存在'
+    dst_s = datetime.datetime.fromtimestamp(dst_t).strftime('%Y-%m-%d %H:%M') if dst_t else '不存在'
+    diff = '⚠️ 需要同步' if src_t and dst_t and src_t > dst_t + 60 else 'OK'
+    print(f'{diff}  {src}: {src_s}  |  {dst}: {dst_s}')
+"
+```
+
+若顯示「⚠️ 需要同步」，立即執行對應的 `cp` 指令。
 
 ---
 

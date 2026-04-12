@@ -48,25 +48,45 @@ OBSTACLE_WHITELIST = [
 
 
 def _load_models() -> bool:
-    """同步載入所有模型（在 executor 中執行）"""
+    """同步載入所有模型（在 executor 中執行）。
+    相同路徑的 .pt 檔只載入一次，多個 key 共用同一個模型實例以節省 VRAM。"""
     from ultralytics import YOLO, YOLOE
-    from config import BLIND_PATH_MODEL, OBSTACLE_MODEL
+    from config import BLIND_PATH_MODEL, OBSTACLE_MODEL, TRAFFICLIGHT_MODEL
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"使用設備: {device}")
 
-    # ── 盲道分割模型 ───────────────────────────────────────────────────────────
-    if os.path.exists(BLIND_PATH_MODEL):
-        logger.info(f"載入盲道模型: {BLIND_PATH_MODEL}")
-        seg = YOLO(BLIND_PATH_MODEL)
-        seg.to(device)
-        _models["yolo-seg"] = seg
-        logger.info("yolo-seg 就緒")
-    else:
-        logger.warning(f"找不到盲道模型: {BLIND_PATH_MODEL}")
+    # 已載入路徑快取：path → model instance（避免同一 .pt 重複佔用 VRAM）
+    _loaded: dict = {}
 
-    # ── 障礙物偵測模型（YOLOE 或標準 YOLO，自動偵測）─────────────────────────
-    if os.path.exists(OBSTACLE_MODEL):
+    def _load_standard_yolo(path: str, key: str) -> bool:
+        """載入標準 YOLO；若路徑已載入則直接共用"""
+        if not os.path.exists(path):
+            logger.warning(f"找不到模型檔: {path}（{key}）")
+            return False
+        if path in _loaded:
+            _models[key] = _loaded[path]
+            logger.info(f"{key} 共用已載入模型: {path}")
+            return True
+        m = YOLO(path)
+        m.to(device)
+        _models[key] = m
+        _loaded[path] = m
+        logger.info(f"{key} 就緒（{path}）")
+        return True
+
+    # ── 盲道分割模型 ───────────────────────────────────────────────────────────
+    _load_standard_yolo(BLIND_PATH_MODEL, "yolo-seg")
+
+    # ── 障礙物偵測模型（嘗試 YOLOE；若路徑已載入或非 YOLOE 則用標準 YOLO）────
+    if not os.path.exists(OBSTACLE_MODEL):
+        logger.warning(f"找不到障礙物模型: {OBSTACLE_MODEL}")
+    elif OBSTACLE_MODEL in _loaded:
+        # 與盲道模型同一個檔案，直接共用
+        _models["yolo-obs"] = _loaded[OBSTACLE_MODEL]
+        _models["yolo-obs-is-yoloe"] = False
+        logger.info(f"yolo-obs 共用已載入模型: {OBSTACLE_MODEL}")
+    else:
         logger.info(f"載入障礙物模型: {OBSTACLE_MODEL}")
         try:
             obs = YOLOE(OBSTACLE_MODEL)
@@ -77,35 +97,39 @@ def _load_models() -> bool:
             obs.set_classes(OBSTACLE_WHITELIST, embeddings)
             _models["yolo-obs"] = obs
             _models["yolo-obs-is-yoloe"] = True
+            _loaded[OBSTACLE_MODEL] = obs
             logger.info("yolo-obs 就緒（YOLOE 白名單特徵已預計算）")
         except Exception as yoloe_err:
-            logger.info(f"非 YOLOE 模型（{yoloe_err}），改用標準 YOLO 載入障礙物模型...")
+            logger.info(f"非 YOLOE 模型（{yoloe_err}），改用標準 YOLO...")
             obs = YOLO(OBSTACLE_MODEL)
             obs.to(device)
             _models["yolo-obs"] = obs
             _models["yolo-obs-is-yoloe"] = False
+            _loaded[OBSTACLE_MODEL] = obs
             logger.info(f"yolo-obs 就緒（標準 YOLO，類別: {list(obs.names.values())}）")
-    else:
-        logger.warning(f"找不到障礙物模型: {OBSTACLE_MODEL}")
 
     # ── 紅綠燈模型 ─────────────────────────────────────────────────────────────
-    tl_path = os.getenv("TRAFFIC_LIGHT_MODEL", "model/trafficlight.pt")
-    if os.path.exists(tl_path):
-        logger.info(f"載入紅綠燈模型: {tl_path}")
-        tl = YOLO(tl_path)
-        tl.to(device)
-        _models["trafficlight"] = tl
-        logger.info("trafficlight 就緒")
+    _load_standard_yolo(TRAFFICLIGHT_MODEL, "trafficlight")
 
     logger.info(f"模型載入完成，共 {len(_models)} 個：{list(_models.keys())}")
     return len(_models) > 0
 
 
 def _init_locks():
-    """為每個已載入的模型建立各自的推論鎖（必須在 event loop 內呼叫）"""
+    """為每個已載入的模型建立推論鎖（必須在 event loop 內呼叫）。
+    共用同一個模型實例的 key 會共用同一把鎖，避免並發推論同一模型。"""
     global _inference_locks
-    _inference_locks = {name: asyncio.Lock() for name in _models}
-    logger.info(f"推論鎖已建立：{list(_inference_locks.keys())}")
+    id_to_lock: dict = {}
+    _inference_locks = {}
+    for name, obj in _models.items():
+        if isinstance(obj, bool):
+            # 跳過 "yolo-obs-is-yoloe" 這類 flag 值
+            continue
+        mid = id(obj)
+        if mid not in id_to_lock:
+            id_to_lock[mid] = asyncio.Lock()
+        _inference_locks[name] = id_to_lock[mid]
+    logger.info(f"推論鎖已建立：{list(_inference_locks.keys())}（共 {len(id_to_lock)} 把）")
 
 
 def _run_inference(req: dict) -> list:

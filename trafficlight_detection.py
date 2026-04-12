@@ -74,11 +74,22 @@ LIGHT_VOICE_MAP = {
     "countdown_stop": "紅燈",      # → voice/紅燈.wav
 }
 
-# 需要过滤的类别（不检测、不显示）
+# ALL.pt 類別名稱重映射 → 對應 LIGHT_NAMES 的 key
+CLASS_REMAP = {
+    "crossing_green_light": "go",
+    "crossing_red_light":   "stop",
+}
+
+# 需要過濾的類別（不偵測、不顯示）
+# 包含 ALL.pt 中的非紅綠燈類別
 FILTERED_CLASSES = {
-    "crossing",          # 斑马线（不需要）
-    "blank",            # 空白
-    "countdown_blank"   # 倒计时空白
+    "crossing",            # 舊模型斑馬線
+    "blank",
+    "countdown_blank",
+    # ALL.pt 非紅綠燈類別
+    "crossing_crosswalk", "guide_bricks", "green_sidewalk", "sidewalk",
+    "person", "bicycle", "car", "motorcycle", "bus",
+    "obstacle", "curb", "stairs",
 }
 
 # UI文本管理
@@ -280,12 +291,12 @@ def main(headless: bool = True, stop_event=None):
                         cls_id = int(box.cls[0])
                         conf = float(box.conf[0])
                         class_name = class_names.get(cls_id, f"class_{cls_id}")
-                        class_name_lower = class_name.lower()
-                        
+                        class_name_lower = CLASS_REMAP.get(class_name.lower(), class_name.lower())
+
                         # 跳过不需要的类别
                         if class_name_lower in FILTERED_CLASSES:
                             continue
-                        
+
                         if conf > max_conf:
                             max_conf = conf
                             detected_light = class_name_lower
@@ -295,8 +306,8 @@ def main(headless: bool = True, stop_event=None):
                         cls_id = int(box.cls[0])
                         conf = float(box.conf[0])
                         class_name = class_names.get(cls_id, f"class_{cls_id}")
-                        class_name_lower = class_name.lower()
-                        
+                        class_name_lower = CLASS_REMAP.get(class_name.lower(), class_name.lower())
+
                         # 跳过不需要的类别
                         if class_name_lower in FILTERED_CLASSES:
                             continue
@@ -535,23 +546,23 @@ def process_single_frame(image: np.ndarray, ui_broadcast_callback=None) -> dict:
                 cls_id = int(box.cls[0])
                 conf = float(box.conf[0])
                 class_name = class_names.get(cls_id, f"class_{cls_id}")
-                class_name_lower = class_name.lower()
-                
+                class_name_lower = CLASS_REMAP.get(class_name.lower(), class_name.lower())
+
                 # 【过滤】跳过不需要的类别（斑马线、空白等）
                 if class_name_lower in FILTERED_CLASSES:
                     continue
-                
+
                 if conf > max_conf:
                     max_conf = conf
                     detected_light = class_name_lower
-            
+
             # 绘制检测框（只绘制红绿灯，不绘制斑马线）
             for box in r.boxes:
                 cls_id = int(box.cls[0])
                 conf = float(box.conf[0])
                 class_name = class_names.get(cls_id, f"class_{cls_id}")
-                class_name_lower = class_name.lower()
-                
+                class_name_lower = CLASS_REMAP.get(class_name.lower(), class_name.lower())
+
                 # 【过滤】跳过不需要的类别
                 if class_name_lower in FILTERED_CLASSES:
                     continue
