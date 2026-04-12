@@ -2,7 +2,8 @@
 // 管理伺服器連線、導航狀態、ASR 訊息、緊急連絡人（本機儲存）
 
 import 'dart:async';
-import 'dart:typed_data';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +21,7 @@ import '../services/places_service.dart';
 import '../services/gps_navigation_service.dart';
 import '../services/emergency_notification_service.dart';
 import '../services/voice_cache_service.dart';
+import '../services/local_voice_service.dart';
 
 class AppProvider extends ChangeNotifier {
   // ── 伺服器設定 ──────────────────────────────────────────────────────────
@@ -180,6 +182,7 @@ class AppProvider extends ChangeNotifier {
 
     // 背景預載固定語音快取（不阻塞啟動流程）
     VoiceCacheService.instance.init(_tts);
+    LocalVoiceService.instance.init(); // 載入 assets/voice_map.json
 
     await loadContacts();
     await loadPlaces();
@@ -517,8 +520,36 @@ class AppProvider extends ChangeNotifier {
     }
     // 伺服器每 30 秒發送的保活訊號，不顯示在訊息記錄中
     if (msg == 'PING') return;
+
+    // SPEAK: 本地語音播放（伺服器命中預錄 WAV 時推送）
+    // 格式：SPEAK:{"text":"請向左平移","duration_ms":1640}
+    if (msg.startsWith('SPEAK:')) {
+      _handleSpeakMessage(msg.substring(6));
+      return;
+    }
+
     _addMessage(msg);
     _checkEmergencyCall(msg);
+  }
+
+  void _handleSpeakMessage(String jsonStr) {
+    try {
+      final data       = jsonDecode(jsonStr) as Map<String, dynamic>;
+      final text       = data['text']        as String? ?? '';
+      final durationMs = (data['duration_ms'] as num?)?.toInt() ?? 2000;
+      if (text.isEmpty) return;
+
+      // 非同步：本地 WAV 優先，stream 靜音；未命中則放行 stream
+      LocalVoiceService.instance.speak(text).then((playedMs) {
+        if (playedMs != null) {
+          // 命中本地 WAV：靜音 /stream.wav 避免重播
+          _audio.suppressStreamFor(durationMs);
+        }
+        // 未命中：/stream.wav 繼續正常播放（伺服器已發出音訊）
+      });
+    } catch (e) {
+      debugPrint('[AppProvider] SPEAK 解析失敗: $e');
+    }
   }
 
   void _addMessage(String msg) {

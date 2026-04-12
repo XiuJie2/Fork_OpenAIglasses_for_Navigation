@@ -152,6 +152,21 @@ class RemoteObstacleDetector:
         num_boxes = len(r.boxes.cls) if (r.boxes is not None and r.boxes.cls is not None) else 0
         obstacles = []
 
+        # 障礙物白名單（與 ObstacleDetectorClient 保持一致）
+        _whitelist_lower = {
+            'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
+            'animal', 'scooter', 'stroller', 'dog',
+            'pole', 'post', 'bollard', 'utility pole', 'light pole', 'signpost',
+            'bench', 'chair', 'potted plant', 'hydrant', 'cone', 'stone', 'box',
+            'trash can', 'barrel', 'cart',
+            'fence', 'barrier', 'wall', 'gate', 'door',
+            'rock', 'tree', 'branch', 'curb',
+            'stairs', 'step', 'ramp', 'hole',
+            'bag', 'suitcase', 'backpack',
+            'table', 'ladder',
+            'object', 'obstacle',
+        }
+
         for i, mask_tensor in enumerate(r.masks.data):
             if i >= num_boxes:
                 continue
@@ -180,17 +195,23 @@ class RemoteObstacleDetector:
             else:
                 class_name = "Unknown"
 
+            # 白名單過濾：非障礙物類別（如 guide_bricks、sidewalk）略過
+            if class_name.lower() not in _whitelist_lower:
+                continue
+
             y_coords, x_coords = np.where(mask > 0)
             if len(y_coords) == 0:
                 continue
 
+            conf_val = float(r.boxes.conf[i]) if r.boxes.conf is not None else 0.5
             obstacles.append({
-                "name":         class_name.strip(),
-                "mask":         mask,
-                "area":         area,
-                "area_ratio":   area / (H * W),
-                "center_x":     float(np.mean(x_coords)),
-                "center_y":     float(np.mean(y_coords)),
+                "name":           class_name.strip(),
+                "confidence":     conf_val,
+                "mask":           mask,
+                "area":           area,
+                "area_ratio":     area / (H * W),
+                "center_x":       float(np.mean(x_coords)),
+                "center_y":       float(np.mean(y_coords)),
                 "bottom_y_ratio": float(np.max(y_coords) / H),
             })
 

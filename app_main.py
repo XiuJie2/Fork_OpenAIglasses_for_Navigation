@@ -59,7 +59,7 @@ from asr_core import (
     STANDBY_RMS_THRESH,
     preload_speech_client,
 )
-from audio_player import initialize_audio_system, play_voice_text, play_audio_threadsafe
+from audio_player import initialize_audio_system, play_voice_text, play_audio_threadsafe, register_speak_push
 
 # ---- 同步录制器 ----
 import sync_recorder
@@ -1910,6 +1910,17 @@ async def on_startup():
         await loop.create_datagram_endpoint(lambda: UDPProto(), local_addr=(UDP_IP, UDP_PORT))
     except OSError as e:
         print(f"[UDP] port {UDP_PORT} 無法綁定（{e}），IMU 資料將不可用，但服務繼續啟動", flush=True)
+
+    # 注入語音推播 callback：每次命中預錄 WAV，同步推 SPEAK: 到 /ws_ui
+    # APP 收到後用本地 WAV 播放，不依賴 /stream.wav
+    # 注意：play_voice_text 可能從非同步 thread 呼叫，必須用 run_coroutine_threadsafe
+    _main_loop = asyncio.get_running_loop()
+
+    def _speak_push(text: str, duration_ms: int) -> None:
+        msg = json.dumps({"type": "speak", "text": text, "duration_ms": duration_ms}, ensure_ascii=False)
+        asyncio.run_coroutine_threadsafe(ui_broadcast_raw(f"SPEAK:{msg}"), _main_loop)
+
+    register_speak_push(_speak_push)
 
 _disc_stop = threading.Event()
 

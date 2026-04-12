@@ -65,18 +65,26 @@ def _load_models() -> bool:
     else:
         logger.warning(f"找不到盲道模型: {BLIND_PATH_MODEL}")
 
-    # ── 障礙物偵測模型（YOLOE）──────────────────────────────────────────────────
+    # ── 障礙物偵測模型（YOLOE 或標準 YOLO，自動偵測）─────────────────────────
     if os.path.exists(OBSTACLE_MODEL):
         logger.info(f"載入障礙物模型: {OBSTACLE_MODEL}")
-        obs = YOLOE(OBSTACLE_MODEL)
-        obs.to(device)
-        obs.fuse()
-        # 預計算白名單文本特徵（只做一次）
-        with torch.inference_mode():
-            embeddings = obs.get_text_pe(OBSTACLE_WHITELIST)
-        obs.set_classes(OBSTACLE_WHITELIST, embeddings)
-        _models["yolo-obs"] = obs
-        logger.info("yolo-obs 就緒（白名單特徵已預計算）")
+        try:
+            obs = YOLOE(OBSTACLE_MODEL)
+            obs.to(device)
+            obs.fuse()
+            with torch.inference_mode():
+                embeddings = obs.get_text_pe(OBSTACLE_WHITELIST)
+            obs.set_classes(OBSTACLE_WHITELIST, embeddings)
+            _models["yolo-obs"] = obs
+            _models["yolo-obs-is-yoloe"] = True
+            logger.info("yolo-obs 就緒（YOLOE 白名單特徵已預計算）")
+        except Exception as yoloe_err:
+            logger.info(f"非 YOLOE 模型（{yoloe_err}），改用標準 YOLO 載入障礙物模型...")
+            obs = YOLO(OBSTACLE_MODEL)
+            obs.to(device)
+            _models["yolo-obs"] = obs
+            _models["yolo-obs-is-yoloe"] = False
+            logger.info(f"yolo-obs 就緒（標準 YOLO，類別: {list(obs.names.values())}）")
     else:
         logger.warning(f"找不到障礙物模型: {OBSTACLE_MODEL}")
 
@@ -110,10 +118,11 @@ def _run_inference(req: dict) -> list:
     if model is None:
         return []
 
-    # YOLOE 不支援某些參數，事先移除
+    # YOLOE 不支援 classes / half 參數；標準 YOLO 則保留
     if model_name == "yolo-obs":
-        kwargs.pop("classes", None)
-        kwargs.pop("half", None)
+        if _models.get("yolo-obs-is-yoloe", True):
+            kwargs.pop("classes", None)
+            kwargs.pop("half", None)
 
     try:
         with torch.inference_mode():

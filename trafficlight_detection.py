@@ -50,28 +50,36 @@ FRONTEND_COLORS = {
     "muted": (159, 176, 195),  # 灰色
 }
 
-# 红绿灯状态到颜色的映射
+# 紅綠燈狀態到顏色的映射
 LIGHT_COLORS = {
-    "stop": FRONTEND_COLORS["red"],
-    "countdown_go": FRONTEND_COLORS["yellow"],
-    "go": FRONTEND_COLORS["green"],
+    "stop":           FRONTEND_COLORS["red"],
+    "countdown_go":   FRONTEND_COLORS["yellow"],
+    "go":             FRONTEND_COLORS["green"],
+    "countdown_stop": FRONTEND_COLORS["red"],
 }
 
-# 【修正】红绿灯状态到中文的映射
-# 只包含真正的红绿灯类别，排除斑马线(crossing)和空白
+# 紅綠燈狀態到繁體中文的映射（畫面顯示用）
 LIGHT_NAMES = {
-    "stop": "红灯",              # 机动车红灯
-    "go": "绿灯",                # 机动车绿灯
-    "countdown_go": "黄灯",      # 绿灯倒计时（用黄灯提示）
-    "countdown_stop": "红灯",    # 红灯倒计时
+    "stop":           "紅燈",
+    "go":             "綠燈",
+    "countdown_go":   "黃燈",      # 綠燈倒數（黃燈提示）
+    "countdown_stop": "紅燈倒數",
 }
 
-# 红绿灯状态到语音文件的映射
+# 覆蓋 YOLO 模型內建類別名稱為繁體中文（model.names 用）
+CHINESE_CLASS_NAMES = {
+    0: "紅燈",
+    1: "綠燈",
+    2: "黃燈",
+    3: "紅燈倒數",
+}
+
+# 紅綠燈狀態到語音檔的映射
 LIGHT_VOICE_MAP = {
-    "stop": "红灯",              # → voice/红灯.WAV
-    "go": "绿灯",                # → voice/绿灯.WAV
-    "countdown_go": "黄灯",      # → voice/黄灯.WAV（绿灯倒计时用黄灯提示）
-    "countdown_stop": "红灯",    # → voice/红灯.WAV
+    "stop":           "紅燈",      # → voice/紅燈.wav
+    "go":             "綠燈",      # → voice/綠燈.wav
+    "countdown_go":   "黃燈",      # → voice/黃燈.wav
+    "countdown_stop": "紅燈",      # → voice/紅燈.wav
 }
 
 # 需要过滤的类别（不检测、不显示）
@@ -196,16 +204,20 @@ def main(headless: bool = True, stop_event=None):
         model = YOLO(YOLO_MODEL_PATH)
         if torch.cuda.is_available():
             model.to("cuda")
-            print(f"[TRAFFIC] 模型加载成功（GPU）: {YOLO_MODEL_PATH}")
+            print(f"[TRAFFIC] 模型載入成功（GPU）: {YOLO_MODEL_PATH}")
         else:
-            print(f"[TRAFFIC] 模型加载成功（CPU，CUDA 不可用）: {YOLO_MODEL_PATH}")
+            print(f"[TRAFFIC] 模型載入成功（CPU）: {YOLO_MODEL_PATH}")
+        # 覆蓋模型內建類別名稱為繁體中文
+        # model.names 是唯讀 property，需改底層 model.model.names
+        if hasattr(model, 'model') and hasattr(model.model, 'names'):
+            model.model.names = CHINESE_CLASS_NAMES
     except Exception as e:
-        print(f"[TRAFFIC] 模型加载失败: {e}")
+        print(f"[TRAFFIC] 模型載入失敗: {e}")
         return
 
-    # 获取类别名称
+    # 取得類別名稱
     class_names = model.names if hasattr(model, 'names') else {}
-    print(f"[TRAFFIC] 模型类别: {class_names}")
+    print(f"[TRAFFIC] 模型類別: {class_names}")
 
     # 状态跟踪
     last_tts_ts = 0.0
@@ -491,11 +503,15 @@ def init_model():
         _model = YOLO(YOLO_MODEL_PATH)
         if torch.cuda.is_available():
             _model.to("cuda")
-            print(f"[TRAFFIC] 模型加载成功（GPU）: {YOLO_MODEL_PATH}")
+            print(f"[TRAFFIC] 模型載入成功（GPU）: {YOLO_MODEL_PATH}")
         else:
-            print(f"[TRAFFIC] 模型加载成功（CPU，CUDA 不可用）: {YOLO_MODEL_PATH}")
-        class_names = _model.names if hasattr(_model, 'names') else {}
-        print(f"[TRAFFIC] 模型类别: {class_names}")
+            print(f"[TRAFFIC] 模型載入成功（CPU）: {YOLO_MODEL_PATH}")
+        # 覆蓋模型內建類別名稱為繁體中文
+        # model.names 是唯讀 property，需改底層 model.model.names
+        if hasattr(_model, 'model') and hasattr(_model.model, 'names'):
+            _model.model.names = CHINESE_CLASS_NAMES
+        class_names = _model.names
+        print(f"[TRAFFIC] 模型類別: {class_names}")
         return True
     except Exception as e:
         print(f"[TRAFFIC] 模型加载失败: {e}")

@@ -77,6 +77,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icon/
+    - assets/voice_map.json
+    - assets/audio/
 
 flutter_launcher_icons:
   android: true

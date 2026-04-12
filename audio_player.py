@@ -130,8 +130,12 @@ def load_wav_file(filepath):
         print(f"[AUDIO] 加载音频文件失败 {filepath}: {e}")
         return None
 
+# text → duration_ms（從 map.zh-CN.json 載入，供 APP 本地播音計算靜音時長）
+_voice_duration_map: dict = {}
+
 def _merge_voice_map():
     """读取 voice/map.zh-CN.json 并合并到 AUDIO_MAP"""
+    global _voice_duration_map
     try:
         if not os.path.exists(VOICE_MAP_FILE):
             print(f"[AUDIO] 未找到映射文件: {VOICE_MAP_FILE}")
@@ -147,6 +151,7 @@ def _merge_voice_map():
             fpath = os.path.join(VOICE_DIR, fname)
             if os.path.exists(fpath):
                 AUDIO_MAP[text] = fpath
+                _voice_duration_map[text] = (info or {}).get("duration_ms", 2000)
                 added += 1
             else:
                 print(f"[AUDIO] 映射文件缺失: {fpath}")
@@ -330,6 +335,28 @@ _last_voice_time = 0
 _last_voice_text = ""
 _voice_cooldown = 1.0  # 相同语音至少间隔1秒
 
+# ── APP 本地語音推播鉤子 ──────────────────────────────────────────────────────
+# app_main.py 在啟動時呼叫 register_speak_push() 注入廣播函式
+# 每次成功命中預錄 WAV 時，額外推送 SPEAK:JSON 給 /ws_ui 客戶端
+# 讓 APP 能用本地 WAV 播放，不依賴 /stream.wav 傳輸音訊
+_speak_push_fn = None  # Callable[[str, int], None] | None
+
+def register_speak_push(fn) -> None:
+    """注入 push 函式：fn(text: str, duration_ms: int)"""
+    global _speak_push_fn
+    _speak_push_fn = fn
+
+
+def _notify_speak(key: str) -> None:
+    """成功命中 WAV 後，推送文字給 APP 做本地語音播放"""
+    if _speak_push_fn is None:
+        return
+    try:
+        duration_ms = _voice_duration_map.get(key, 2000)
+        _speak_push_fn(key, duration_ms)
+    except Exception:
+        pass
+
 # 语音优先级定义
 VOICE_PRIORITY = {
     'obstacle': 100,     # 障碍物 - 最高优先级
@@ -479,6 +506,7 @@ def play_voice_text(text: str):
     tl_key = _normalize_traffic_light(t_stripped)
     if tl_key and tl_key in AUDIO_MAP:
         play_audio_threadsafe(tl_key)
+        _notify_speak(tl_key)
         _last_voice_text = text
         _last_voice_time = time.time()
         return
@@ -487,6 +515,7 @@ def play_voice_text(text: str):
     clock_key = _normalize_clock_direction(t_stripped)
     if clock_key and clock_key in AUDIO_MAP:
         play_audio_threadsafe(clock_key)
+        _notify_speak(clock_key)
         _last_voice_text = text
         _last_voice_time = time.time()
         return
@@ -512,6 +541,7 @@ def play_voice_text(text: str):
     for ck in candidates:
         if ck in AUDIO_MAP:
             play_audio_threadsafe(ck)
+            _notify_speak(ck)
             _last_voice_text = text
             _last_voice_time = current_time
             return
@@ -524,6 +554,7 @@ def play_voice_text(text: str):
                 fallback = f"{side}有障礙請向{opp}避開"
                 if fallback in AUDIO_MAP:
                     play_audio_threadsafe(fallback)
+                    _notify_speak(fallback)
                     _last_voice_text = text
                     _last_voice_time = current_time
                     return
@@ -533,6 +564,7 @@ def play_voice_text(text: str):
             fallback = "前方有障礙物請往右繞行"
             if fallback in AUDIO_MAP:
                 play_audio_threadsafe(fallback)
+                _notify_speak(fallback)
                 _last_voice_text = text
                 _last_voice_time = current_time
                 return
@@ -542,6 +574,7 @@ def play_voice_text(text: str):
         fallback = "前方有障碍物，注意避让。"
         if fallback in AUDIO_MAP:
             play_audio_threadsafe(fallback)
+            _notify_speak(fallback)
             _last_voice_text = text
             _last_voice_time = current_time
             return
@@ -550,11 +583,13 @@ def play_voice_text(text: str):
     base = t.rstrip("。.!！?？")
     if base in AUDIO_MAP:
         play_audio_threadsafe(base)
+        _notify_speak(base)
         _last_voice_text = text
         _last_voice_time = current_time
         return
     if base + "。" in AUDIO_MAP:
         play_audio_threadsafe(base + "。")
+        _notify_speak(base + "。")
         _last_voice_text = text
         _last_voice_time = current_time
         return

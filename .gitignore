@@ -73,6 +73,8 @@ mobileclip*.ts
 recordings/
 錄音測試/
 *.wav
+# Android App 預錄語音 assets 例外（需隨 App 打包）
+!Android/assets/audio/*.wav
 
 # ══════════════════════════════════════════════════════
 # 個人文件（不入庫）
