@@ -66,14 +66,6 @@ LIGHT_NAMES = {
     "countdown_stop": "紅燈倒數",
 }
 
-# 覆蓋 YOLO 模型內建類別名稱為繁體中文（model.names 用）
-CHINESE_CLASS_NAMES = {
-    0: "紅燈",
-    1: "綠燈",
-    2: "黃燈",
-    3: "紅燈倒數",
-}
-
 # 紅綠燈狀態到語音檔的映射
 LIGHT_VOICE_MAP = {
     "stop":           "紅燈",      # → voice/紅燈.wav
@@ -207,10 +199,6 @@ def main(headless: bool = True, stop_event=None):
             print(f"[TRAFFIC] 模型載入成功（GPU）: {YOLO_MODEL_PATH}")
         else:
             print(f"[TRAFFIC] 模型載入成功（CPU）: {YOLO_MODEL_PATH}")
-        # 覆蓋模型內建類別名稱為繁體中文
-        # model.names 是唯讀 property，需改底層 model.model.names
-        if hasattr(model, 'model') and hasattr(model.model, 'names'):
-            model.model.names = CHINESE_CLASS_NAMES
     except Exception as e:
         print(f"[TRAFFIC] 模型載入失敗: {e}")
         return
@@ -506,10 +494,6 @@ def init_model():
             print(f"[TRAFFIC] 模型載入成功（GPU）: {YOLO_MODEL_PATH}")
         else:
             print(f"[TRAFFIC] 模型載入成功（CPU）: {YOLO_MODEL_PATH}")
-        # 覆蓋模型內建類別名稱為繁體中文
-        # model.names 是唯讀 property，需改底層 model.model.names
-        if hasattr(_model, 'model') and hasattr(_model.model, 'names'):
-            _model.model.names = CHINESE_CLASS_NAMES
         class_names = _model.names
         print(f"[TRAFFIC] 模型類別: {class_names}")
         return True
