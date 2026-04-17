@@ -81,28 +81,29 @@ const stepVariants = {
 export default function Purchase() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const [products, setProducts] = useState([])      // 所有商品
-  const [productsError, setProductsError] = useState('')  // 商品載入錯誤
-  const [quantities, setQuantities] = useState({})  // { productId: qty }
+  const [products, setProducts] = useState([]) // 所有商品（從 API 獲取）
+  const [productsError, setProductsError] = useState('') // 商品載入錯誤
+  const [quantities, setQuantities] = useState({}) // { productId: qty }
   const [contact, setContact] = useState(initialContact)
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
-  const [step, setStep] = useState(1)               // 真正的步驟狀態：1→2→3
-  const [direction, setDirection] = useState(1)     // 動畫方向：1=前進, -1=後退
+  const [step, setStep] = useState(1) // 真正的步驟狀態：1→2→3
+  const [direction, setDirection] = useState(1) // 動畫方向：1=前進, -1=後退
   const { purchase: c } = useContent()
   const { items: cartItems, addItem, setQty: setCartQty, clearCart } = useCart()
   const toast = useToast()
-const urlProductAdded = useRef(false) // 防止 React StrictMode 重複呼叫 addItem
-const products = useProducts()
+  const urlProductAdded = useRef(false) // 防止 React StrictMode 重複呼叫 addItem
+  const fallbackProducts = useProducts() // Fallback 產品資料
 
-// 載入商品，並合併購物車與 URL 預選
-useEffect(() => {
-  let stale = false // 防止 React StrictMode 重複呼叫 addItem
-  const pid = searchParams.get('product')
+  // 載入商品，並合併購物車與 URL 預選
+  useEffect(() => {
+    let stale = false // 防止 React StrictMode 重複呼叫 addItem
+    const pid = searchParams.get('product')
 
-// 使用 context 中的 products（包含 fallback）
+    // 使用 context 中的 products（包含 fallback）
     if (!stale) {
-      const list = products
+      // 優先使用 API 資料，如果沒有則用 fallback
+      const list = products.length > 0 ? products : fallbackProducts
       setProducts(list)
       // 以購物車為基礎，再疊加 URL 預選的產品
       setQuantities(prev => {
@@ -126,7 +127,7 @@ useEffect(() => {
       })
     }
     return () => { stale = true }
-  }, [searchParams, products]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams, products, fallbackProducts]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 即時同步購物車變更到本地數量（如從其他分頁或返回時購物車已變動）
   useEffect(() => {
