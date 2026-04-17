@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { fetchProducts, fetchProduct } from '../../api/client'
+import { fetchProduct } from '../../api/client'
 import ModelViewer from '../../components/ModelViewer/ModelViewer'
-import { useContent } from '../../context/ContentContext'
+import { useContent, useProducts } from '../../context/ContentContext'
 import { useCart } from '../../context/CartContext'
 import { useToast } from '../../components/Toast'
 import ScrollReveal from '../../components/ScrollReveal'
@@ -11,17 +11,15 @@ import { ProductCardSkeleton, ProductDetailSkeleton } from '../../components/Ske
 
 // ── 產品列表頁（/product）────────────────────────────────────────
 function ProductList({ c }) {
-  const [products, setProducts] = useState([])
+  const products = useProducts()
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
   const { addItem } = useCart()
   const toast = useToast()
 
   useEffect(() => {
-    fetchProducts()
-      .then(res => setProducts(res.data.results || res.data))
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    // 模擬載入完成
+    setLoading(false)
   }, [])
 
   return (

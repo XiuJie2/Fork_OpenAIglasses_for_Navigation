@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import ModelViewer from '../../components/ModelViewer/ModelViewer'
-import { fetchProducts, fetchProduct } from '../../api/client'
-import { useContent } from '../../context/ContentContext'
+import { fetchProduct } from '../../api/client'
+import { useContent, useProducts } from '../../context/ContentContext'
 import { useCart } from '../../context/CartContext'
 import { useToast } from '../../components/Toast'
 import ScrollReveal from '../../components/ScrollReveal'
@@ -17,8 +17,8 @@ function getModelUrl(product) {
 }
 
 export default function Home() {
-  const [products, setProducts]   = useState([])
-  const [details, setDetails]     = useState({})  // id → 含 features/specs 的完整資料
+  const products = useProducts() // 從 Context 獲取（包含 fallback）
+  const [details, setDetails] = useState({}) // id → 含 features/specs 的完整資料
   const [currentIdx, setCurrentIdx] = useState(0)
   const { home: c } = useContent()
   const { addItem } = useCart()
@@ -36,24 +36,27 @@ export default function Home() {
     setCurrentIdx(idx)
     const p = list[idx]
     if (p && !cache[p.id]) {
-      const res = await fetchProduct(p.id)
-      setDetails(prev => ({ ...prev, [res.data.id]: res.data }))
+      try {
+        const res = await fetchProduct(p.id)
+        setDetails(prev => ({ ...prev, [res.data.id]: res.data }))
+      } catch {
+        // 使用 fallback 資料
+        setDetails(prev => ({ ...prev, [p.id]: p }))
+      }
     }
   }, [products, details])
 
-  useEffect(() => {
-    fetchProducts()
-      .then(res => {
-        const list = res.data.results || res.data
-        setProducts(list)
-        if (list.length === 0) return
-        // 預先載入第一個產品的完整資料
-        return fetchProduct(list[0].id).then(r => {
-          setDetails({ [r.data.id]: r.data })
-        })
+useEffect(() => {
+  // 嘗試從 API 獲取完整產品資料（如果後端有部署）
+  if (products.length > 0) {
+    fetchProduct(products[0].id)
+      .then(r => setDetails({ [r.data.id]: r.data }))
+      .catch(() => {
+        // 使用 fallback 產品的 features/specs
+        setDetails({ [products[0].id]: products[0] })
       })
-      .catch(console.error)
-  }, [])
+  }
+}, [products])
 
   return (
     <div>

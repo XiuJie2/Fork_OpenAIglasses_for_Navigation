@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { fetchProducts, createOrder } from '../../api/client'
-import { useContent } from '../../context/ContentContext'
+import { createOrder } from '../../api/client'
+import { useContent, useProducts } from '../../context/ContentContext'
 import { useCart } from '../../context/CartContext'
 import { useToast } from '../../components/Toast'
 
@@ -92,45 +92,41 @@ export default function Purchase() {
   const { purchase: c } = useContent()
   const { items: cartItems, addItem, setQty: setCartQty, clearCart } = useCart()
   const toast = useToast()
-  const urlProductAdded = useRef(false) // 防止 React StrictMode 重複呼叫 addItem
+const urlProductAdded = useRef(false) // 防止 React StrictMode 重複呼叫 addItem
+const products = useProducts()
 
-  // 載入商品，並合併購物車與 URL 預選
-  useEffect(() => {
-    let stale = false // 防止 React StrictMode 重複呼叫 addItem
-    const pid = searchParams.get('product')
-    fetchProducts()
-      .then((res) => {
-        if (stale) return // 元件已卸載，忽略過期的 fetch 結果
-        const list = res.data.results || res.data
-        setProducts(list)
-        // 以購物車為基礎，再疊加 URL 預選的產品
-        setQuantities(prev => {
-          // 先將購物車內容同步進來（保留頁面上已調整的數量）
-          const fromCart = {}
-          Object.entries(cartItems).forEach(([id, { qty }]) => {
-            fromCart[id] = prev[id] ?? qty
-          })
-          // URL 帶入的產品：若尚未在購物車中，用 addItem 加入確保 product 資料完整
-          if (pid && !urlProductAdded.current) {
-            const urlProduct = list.find(p => String(p.id) === String(pid))
-            if (urlProduct) {
-              addItem(urlProduct, 1)
-              urlProductAdded.current = true
-            }
-            fromCart[pid] = fromCart[pid] || 1
-          } else if (pid) {
-            fromCart[pid] = fromCart[pid] || 1
-          }
-          return fromCart
+// 載入商品，並合併購物車與 URL 預選
+useEffect(() => {
+  let stale = false // 防止 React StrictMode 重複呼叫 addItem
+  const pid = searchParams.get('product')
+
+// 使用 context 中的 products（包含 fallback）
+    if (!stale) {
+      const list = products
+      setProducts(list)
+      // 以購物車為基礎，再疊加 URL 預選的產品
+      setQuantities(prev => {
+        // 先將購物車內容同步進來（保留頁面上已調整的數量）
+        const fromCart = {}
+        Object.entries(cartItems).forEach(([id, { qty }]) => {
+          fromCart[id] = prev[id] ?? qty
         })
+        // URL 帶入的產品：若尚未在購物車中，用 addItem 加入確保 product 資料完整
+        if (pid && !urlProductAdded.current) {
+          const urlProduct = list.find(p => String(p.id) === String(pid))
+          if (urlProduct) {
+            addItem(urlProduct, 1)
+            urlProductAdded.current = true
+          }
+          fromCart[pid] = fromCart[pid] || 1
+        } else if (pid) {
+          fromCart[pid] = fromCart[pid] || 1
+        }
+        return fromCart
       })
-      .catch((err) => {
-        if (stale) return
-        console.error(err)
-        setProductsError('商品資料載入失敗，請重新整理頁面再試。')
-      })
+    }
     return () => { stale = true }
-  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchParams, products]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 即時同步購物車變更到本地數量（如從其他分頁或返回時購物車已變動）
   useEffect(() => {
