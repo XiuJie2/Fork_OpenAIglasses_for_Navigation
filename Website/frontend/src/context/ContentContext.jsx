@@ -63,17 +63,19 @@ export function ContentProvider({ children }) {
       })
   }, [])
 
+  const contextValue = { ...content, products }
+
+  return (
+    <ContentContext.Provider value={contextValue}>
+      {children}
+    </ContentContext.Provider>
+  )
+}
+
+export const useContent = () => useContext(ContentContext)
+
 // 匯出 products 供其他元件使用
 export const useProducts = () => {
   const context = useContext(ContentContext)
   return context.products || fallbackProducts
 }
-
-return (
-  <ContentContext.Provider value={{ ...content, products }}>
-    {children}
-  </ContentContext.Provider>
-)
-}
-
-export const useContent = () => useContext(ContentContext)
