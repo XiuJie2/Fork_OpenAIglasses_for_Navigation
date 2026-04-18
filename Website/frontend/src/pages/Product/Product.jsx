@@ -181,7 +181,7 @@ function ProductDetail({ id, c }) {
        : displayProduct.model_3d.startsWith('/')
          ? displayProduct.model_3d
          : `/media/${displayProduct.model_3d}`)
-    : '/media/models/aiglass.glb'
+    : '/aiglass.glb'
 
   const tabLabels = {
     features: c.tab_features || '功能特點',

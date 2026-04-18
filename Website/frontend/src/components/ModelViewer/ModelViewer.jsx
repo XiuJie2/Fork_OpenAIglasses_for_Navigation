@@ -50,7 +50,7 @@ function GlassesModel({ url }) {
   )
 }
 
-useGLTF.preload('/media/models/aiglass.glb')
+useGLTF.preload('/aiglass.glb')
 
 /** 載入中佔位顯示 */
 function LoadingPlaceholder() {

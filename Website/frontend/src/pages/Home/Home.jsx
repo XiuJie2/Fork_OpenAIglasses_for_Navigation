@@ -27,7 +27,7 @@ export default function Home() {
   const currentBase    = products[currentIdx] || null
   const currentProduct = currentBase ? (details[currentBase.id] || currentBase) : null
   const highlights     = (currentProduct?.features || []).slice(0, 4)
-  const modelUrl       = getModelUrl(currentProduct) || '/media/models/aiglass.glb'
+const modelUrl = getModelUrl(currentProduct) || '/aiglass.glb'
   const price          = currentProduct ? (Number(currentProduct.price) || 0).toLocaleString() : '12,900'
   const originalPrice  = currentProduct ? (Number(currentProduct.original_price) || 0).toLocaleString() : '15,900'
 
