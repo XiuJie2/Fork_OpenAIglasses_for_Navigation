@@ -13,7 +13,7 @@ function getModelUrl(product) {
   const m = String(product.model_3d)
   if (m.startsWith('http')) return new URL(m).pathname
   if (m.startsWith('/')) return m
-  return `/media/${m}`
+  return `/media/models/${m}`
 }
 
 export default function Home() {
@@ -27,7 +27,7 @@ export default function Home() {
   const currentBase    = products[currentIdx] || null
   const currentProduct = currentBase ? (details[currentBase.id] || currentBase) : null
   const highlights     = (currentProduct?.features || []).slice(0, 4)
-const modelUrl = getModelUrl(currentProduct) || '/aiglass.glb'
+const modelUrl = getModelUrl(currentProduct) || '/media/models/aiglass.glb'
   const price          = currentProduct ? (Number(currentProduct.price) || 0).toLocaleString() : '12,900'
   const originalPrice  = currentProduct ? (Number(currentProduct.original_price) || 0).toLocaleString() : '15,900'
 

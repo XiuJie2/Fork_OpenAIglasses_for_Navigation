@@ -21,8 +21,8 @@ const fallbackProducts = [
     price: 12900,
     original_price: 15900,
     description: '專為視障人士設計的 AI 輔助系統，包含盲道導航、斑馬線輔助、障礙物偵測、物品尋找等功能。',
-    image: '/aiglass.png',
-    model_3d: '/aiglass.glb',
+    image: '/media/models/aiglass.png',
+    model_3d: 'aiglass.glb',
     features: [
       { icon: '🛤️', title: '盲道導航', description: '即時識別盲道並語音引導方向' },
       { icon: '🚦', title: '斑馬線輔助', description: '紅綠燈狀態識別與安全過馬路指引' },
