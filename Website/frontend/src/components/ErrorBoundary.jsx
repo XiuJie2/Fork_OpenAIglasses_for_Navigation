@@ -42,14 +42,6 @@ export default class ErrorBoundary extends Component {
                 返回首頁
               </Link>
             </div>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
-              <details className="mt-6 text-left">
-                <summary className="text-xs text-gray-400 cursor-pointer">錯誤詳情</summary>
-                <pre className="mt-2 text-xs text-red-400 bg-red-500/10 rounded-lg p-3 overflow-x-auto">
-                  {this.state.error.toString()}
-                </pre>
-              </details>
-            )}
           </div>
         </div>
       )
