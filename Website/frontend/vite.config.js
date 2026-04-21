@@ -29,13 +29,6 @@ export default defineConfig({
         },
       },
     },
-    // 生產環境最佳化
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true, // 移除 console.log
-        drop_debugger: true,
-      },
-    },
+    // 使用 esbuild 進行 minify（Vite 預設，更快）
   },
 })
